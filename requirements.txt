@@ -1,0 +1,11 @@
+flask
+python-dotenv
+requests
+flask-cors
+pymongo
+werkzeug
+python-multipart
+gunicorn
+cloudinary
+certifi
+pypdf
