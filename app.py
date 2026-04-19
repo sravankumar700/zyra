@@ -5,19 +5,22 @@ import re
 import json
 import random
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from email.message import EmailMessage
 from urllib.parse import unquote
 
-from flask import Flask, render_template, request, jsonify, session, redirect
+from flask import Flask, render_template, request, jsonify, session, redirect, send_file, abort
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from pymongo import MongoClient
 from pymongo.errors import ServerSelectionTimeoutError, PyMongoError
+from gridfs import GridFS
 from bson.objectid import ObjectId
 from config import Config
-from ai.hf_generator import generate_mcq
+from ai.candidate_reporting import build_candidate_report
+from ai.groq_generator import get_groq_generator
+from api.interview_routes import register_interview_routes
 import cloudinary
 import cloudinary.uploader
 import certifi
@@ -33,6 +36,7 @@ except Exception:
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET", "super_secret_key")
+app.config["TEMPLATES_AUTO_RELOAD"] = True
 CORS(app)
 cloudinary.config(
     cloud_name=Config.CLOUDINARY_CLOUD_NAME,
@@ -55,6 +59,7 @@ if Config.MONGO_URI.startswith("mongodb+srv://"):
 
 client = MongoClient(Config.MONGO_URI, **mongo_kwargs)
 db = client[Config.MONGO_DB]
+fs = GridFS(db)
 
 try:
     client.admin.command("ping")
@@ -64,14 +69,26 @@ except Exception as e:
 applications = db.applications
 users = db.users
 tests = db.tests
+coding_tests = db.coding_tests
 jobs = db.jobs
-MCQ_QUESTION_COUNT = max(10, int(os.getenv("MCQ_QUESTION_COUNT", "12")))
-VIRTUAL_QUESTION_COUNT = max(5, int(os.getenv("VIRTUAL_QUESTION_COUNT", "7")))
+MCQ_QUESTION_COUNT = max(20, int(os.getenv("MCQ_QUESTION_COUNT", "20")))
+VIRTUAL_QUESTION_COUNT = min(20, max(15, int(os.getenv("VIRTUAL_QUESTION_COUNT", "18"))))
 MCQ_PROMOTION_THRESHOLD_PERCENT = float(os.getenv("MCQ_PROMOTION_THRESHOLD_PERCENT", "60"))
+RESUME_AUTO_CREDENTIAL_THRESHOLD_PERCENT = float(os.getenv("RESUME_AUTO_CREDENTIAL_THRESHOLD_PERCENT", "60"))
+MCQ_TEST_DURATION_SECONDS = max(300, int(os.getenv("MCQ_TEST_DURATION_SECONDS", "3600")))
+VIRTUAL_TEST_DURATION_SECONDS = max(300, int(os.getenv("VIRTUAL_TEST_DURATION_SECONDS", "3600")))
 
 
 def utc_now():
     return datetime.now(timezone.utc)
+
+
+def elapsed_seconds_since(started_at):
+    if not isinstance(started_at, datetime):
+        return 0
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=timezone.utc)
+    return max(0, int((utc_now() - started_at).total_seconds()))
 
 
 def get_staff_role():
@@ -87,6 +104,92 @@ def is_staff_authorized(*allowed_roles):
     if not allowed_roles:
         return True
     return get_staff_role() in {str(role).strip().lower() for role in allowed_roles}
+
+
+def serialize_admin_value(value):
+    if isinstance(value, ObjectId):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, list):
+        return [serialize_admin_value(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): serialize_admin_value(item) for key, item in value.items()}
+    return value
+
+
+def public_application_document(application):
+    application = application or {}
+    return serialize_admin_value({
+        "_id": application.get("_id"),
+        "source": "application",
+        "first_name": application.get("first_name"),
+        "last_name": application.get("last_name"),
+        "email": application.get("email"),
+        "phone": application.get("phone"),
+        "skills": application.get("skills"),
+        "job_role": application.get("job_role"),
+        "status": application.get("status"),
+        "ats_score": application.get("ats_score"),
+        "ats_decision": application.get("ats_decision"),
+        "ats_summary": application.get("ats_summary"),
+        "ats_breakdown": application.get("ats_breakdown"),
+        "resume_name": application.get("resume_name"),
+        "resume": application.get("resume"),
+        "created_at": application.get("created_at"),
+        "updated_at": application.get("updated_at")
+    })
+
+
+def public_candidate_document(user, include_report=False):
+    user = user or {}
+    document = {
+        "_id": user.get("_id"),
+        "source": "candidate",
+        "application_id": user.get("application_id"),
+        "first_name": user.get("first_name"),
+        "last_name": user.get("last_name"),
+        "email": user.get("email"),
+        "phone": user.get("phone"),
+        "skills": user.get("skills"),
+        "job_role": user.get("job_role"),
+        "status": user.get("status"),
+        "assessment_track": user.get("assessment_track"),
+        "stage_count": user.get("stage_count"),
+        "ats_score": user.get("ats_score"),
+        "ats_decision": user.get("ats_decision"),
+        "ats_summary": user.get("ats_summary"),
+        "ats_breakdown": user.get("ats_breakdown"),
+        "score": user.get("score"),
+        "mcq_score_percent": user.get("mcq_score_percent"),
+        "mcq_raw_score": user.get("mcq_raw_score"),
+        "mcq_total_questions": user.get("mcq_total_questions"),
+        "mcq_completed_at": user.get("mcq_completed_at"),
+        "mcq_proctoring_violations": user.get("mcq_proctoring_violations"),
+        "coding_taken": user.get("coding_taken"),
+        "coding_score": user.get("coding_score"),
+        "coding_feedback": user.get("coding_feedback"),
+        "virtual_round_enabled": user.get("virtual_round_enabled"),
+        "virtual_taken": user.get("virtual_taken"),
+        "virtual_score": user.get("virtual_score"),
+        "virtual_feedback": user.get("virtual_feedback"),
+        "virtual_answered_count": user.get("virtual_answered_count"),
+        "virtual_duration_seconds": user.get("virtual_duration_seconds"),
+        "virtual_completed_at": user.get("virtual_completed_at"),
+        "virtual_proctoring_violations": user.get("virtual_proctoring_violations"),
+        "virtual_report": user.get("virtual_report"),
+        "candidate_report": user.get("candidate_report"),
+        "bias_review_required": user.get("bias_review_required"),
+        "updated_at": user.get("updated_at")
+    }
+    if include_report:
+        report = build_candidate_report(user, interview_evaluation=user.get("virtual_report") or {})
+        document["candidate_report"] = report
+        document["virtual_questions"] = user.get("virtual_questions", [])
+        document["virtual_answers"] = user.get("virtual_answers", [])
+        document["questions_data"] = user.get("questions_data", [])
+        document["candidate_answers"] = user.get("candidate_answers", [])
+    return serialize_admin_value(document)
 
 PROFESSION_CATEGORIES = {
     "technology_it": {
@@ -168,7 +271,7 @@ DEFAULT_JOBS = [
         "urgency_tag": "Immediate",
         "required_skills": ["html", "css", "javascript", "react", "responsive design"],
         "preferred_skills": ["typescript", "accessibility", "api integration"],
-        "threshold": 72,
+        "threshold": 60,
         "description": "Build responsive web interfaces with strong usability, accessibility, and performance fundamentals.",
         "created_by_role": "system",
         "seed_source": "zyra_top_professions_v1",
@@ -188,7 +291,7 @@ DEFAULT_JOBS = [
         "urgency_tag": "Urgent",
         "required_skills": ["python", "api development", "sql", "system design", "testing"],
         "preferred_skills": ["aws", "docker", "microservices"],
-        "threshold": 76,
+        "threshold": 60,
         "description": "Design and maintain reliable backend services with a focus on scalability, security, and clean architecture.",
         "created_by_role": "system",
         "seed_source": "zyra_top_professions_v1",
@@ -208,7 +311,7 @@ DEFAULT_JOBS = [
         "urgency_tag": "Standard",
         "required_skills": ["python", "sql", "statistics", "data analysis", "pandas"],
         "preferred_skills": ["scikit-learn", "visualization", "experiment design"],
-        "threshold": 73,
+        "threshold": 60,
         "description": "Analyze datasets, build baseline models, and communicate insights that support product and business decisions.",
         "created_by_role": "system",
         "seed_source": "zyra_top_professions_v1",
@@ -228,7 +331,7 @@ DEFAULT_JOBS = [
         "urgency_tag": "Urgent",
         "required_skills": ["python", "pytorch", "mlops", "feature engineering", "cloud deployment"],
         "preferred_skills": ["kubernetes", "model monitoring", "docker"],
-        "threshold": 78,
+        "threshold": 60,
         "description": "Deploy and optimize machine learning systems for production-grade predictions and AI-powered features.",
         "created_by_role": "system",
         "seed_source": "zyra_top_professions_v1",
@@ -248,7 +351,7 @@ DEFAULT_JOBS = [
         "urgency_tag": "Immediate",
         "required_skills": ["patient care", "medication administration", "clinical documentation", "vital signs", "infection control"],
         "preferred_skills": ["emr", "triage", "bcls"],
-        "threshold": 75,
+        "threshold": 60,
         "description": "Deliver safe, compassionate patient care while supporting physicians and maintaining accurate clinical records.",
         "created_by_role": "system",
         "seed_source": "zyra_top_professions_v1",
@@ -268,7 +371,7 @@ DEFAULT_JOBS = [
         "urgency_tag": "Urgent",
         "required_skills": ["patient assessment", "clinical diagnosis", "treatment planning", "medical records", "care coordination"],
         "preferred_skills": ["primary care", "outpatient practice", "clinical governance"],
-        "threshold": 78,
+        "threshold": 60,
         "description": "Provide primary medical care, diagnose common conditions, and guide treatment plans with strong patient responsibility.",
         "created_by_role": "system",
         "seed_source": "zyra_top_professions_v1",
@@ -288,7 +391,7 @@ DEFAULT_JOBS = [
         "urgency_tag": "Standard",
         "required_skills": ["requirements gathering", "process mapping", "stakeholder communication", "excel", "sql"],
         "preferred_skills": ["agile", "bpmn", "user stories"],
-        "threshold": 72,
+        "threshold": 60,
         "description": "Gather requirements, map processes, and support solution design that improves operational efficiency.",
         "created_by_role": "system",
         "seed_source": "zyra_top_professions_v1",
@@ -308,7 +411,7 @@ DEFAULT_JOBS = [
         "urgency_tag": "Urgent",
         "required_skills": ["stakeholder management", "business case development", "process analysis", "workshop facilitation", "data interpretation"],
         "preferred_skills": ["cbap", "transformation programs", "change management"],
-        "threshold": 76,
+        "threshold": 60,
         "description": "Lead discovery, define business cases, and align stakeholders on high-impact transformation initiatives.",
         "created_by_role": "system",
         "seed_source": "zyra_top_professions_v1",
@@ -328,7 +431,7 @@ DEFAULT_JOBS = [
         "urgency_tag": "Standard",
         "required_skills": ["project documentation", "scheduling", "jira", "communication", "risk tracking"],
         "preferred_skills": ["ms project", "status reporting", "agile support"],
-        "threshold": 71,
+        "threshold": 60,
         "description": "Support project planning, reporting, and team coordination to keep timelines and risks on track.",
         "created_by_role": "system",
         "seed_source": "zyra_top_professions_v1",
@@ -348,7 +451,7 @@ DEFAULT_JOBS = [
         "urgency_tag": "Urgent",
         "required_skills": ["project planning", "stakeholder management", "budget tracking", "risk management", "delivery governance"],
         "preferred_skills": ["pmp", "agile delivery", "vendor management"],
-        "threshold": 77,
+        "threshold": 60,
         "description": "Own end-to-end project delivery and lead cross-functional teams across scope, timeline, and budget decisions.",
         "created_by_role": "system",
         "seed_source": "zyra_top_professions_v1",
@@ -368,7 +471,7 @@ DEFAULT_JOBS = [
         "urgency_tag": "Standard",
         "required_skills": ["financial modeling", "advanced excel", "budgeting", "data analysis", "forecasting"],
         "preferred_skills": ["power bi", "cfa", "presentation skills"],
-        "threshold": 73,
+        "threshold": 60,
         "description": "Prepare financial models, analyze trends, and support planning decisions through accurate reporting.",
         "created_by_role": "system",
         "seed_source": "zyra_top_professions_v1",
@@ -388,7 +491,7 @@ DEFAULT_JOBS = [
         "urgency_tag": "Urgent",
         "required_skills": ["budgeting", "financial planning", "compliance awareness", "erp systems", "team leadership"],
         "preferred_skills": ["cpa", "audit management", "business partnering"],
-        "threshold": 77,
+        "threshold": 60,
         "description": "Lead budgeting, compliance, and performance reporting while partnering with business leaders on strategic decisions.",
         "created_by_role": "system",
         "seed_source": "zyra_top_professions_v1",
@@ -408,7 +511,7 @@ DEFAULT_JOBS = [
         "urgency_tag": "Immediate",
         "required_skills": ["lesson planning", "classroom management", "student assessment", "communication", "child safeguarding"],
         "preferred_skills": ["teaching license", "phonics", "inclusive education"],
-        "threshold": 72,
+        "threshold": 60,
         "description": "Deliver engaging classroom instruction, monitor student progress, and create a safe learning environment.",
         "created_by_role": "system",
         "seed_source": "zyra_top_professions_v1",
@@ -428,7 +531,7 @@ DEFAULT_JOBS = [
         "urgency_tag": "Urgent",
         "required_skills": ["curriculum planning", "faculty coordination", "academic reporting", "stakeholder communication", "quality assurance"],
         "preferred_skills": ["teacher coaching", "school accreditation", "assessment data analysis"],
-        "threshold": 75,
+        "threshold": 60,
         "description": "Coordinate curriculum delivery, mentor teachers, and ensure academic quality across grade levels.",
         "created_by_role": "system",
         "seed_source": "zyra_top_professions_v1",
@@ -448,7 +551,7 @@ DEFAULT_JOBS = [
         "urgency_tag": "Immediate",
         "required_skills": ["guest relations", "reservation systems", "communication", "problem resolution", "upselling"],
         "preferred_skills": ["pms tools", "multilingual support", "service recovery"],
-        "threshold": 70,
+        "threshold": 60,
         "description": "Create a welcoming guest experience through efficient check-in, inquiry handling, and service recovery.",
         "created_by_role": "system",
         "seed_source": "zyra_top_professions_v1",
@@ -468,13 +571,51 @@ DEFAULT_JOBS = [
         "urgency_tag": "Urgent",
         "required_skills": ["hotel operations", "guest experience", "revenue awareness", "team leadership", "crisis handling"],
         "preferred_skills": ["brand standards", "f&b coordination", "service recovery"],
-        "threshold": 76,
+        "threshold": 60,
         "description": "Lead hotel operations, service standards, and team performance to deliver strong guest satisfaction.",
         "created_by_role": "system",
         "seed_source": "zyra_top_professions_v1",
         "created_at": utc_now()
     }
 ]
+
+CURATED_DEFAULT_JOB_IDS = {
+    "job_frontend_developer",
+    "job_backend_developer",
+    "job_primary_school_teacher",
+    "job_finance_manager",
+    "job_front_office_executive",
+}
+
+DEFAULT_JOBS = [job for job in DEFAULT_JOBS if job.get("id") in CURATED_DEFAULT_JOB_IDS]
+
+TECHNICAL_PROFESSION_KEYS = {"technology_it", "engineering_technical"}
+TECHNICAL_ROLE_HINTS = (
+    "developer", "engineer", "software", "frontend", "backend", "full stack",
+    "fullstack", "data scientist", "machine learning", "devops", "qa", "automation",
+    "cloud", "cyber", "analyst", "programmer"
+)
+
+
+def resolve_assessment_track(role_value="", skills_value="", job_data=None):
+    job_data = job_data or {}
+    explicit_track = str(job_data.get("assessment_track", "")).strip().lower()
+    if explicit_track in {"technical", "non_technical"}:
+        return explicit_track
+
+    haystack = normalize_text(
+        f"{role_value} {skills_value} {job_data.get('title', '')} {job_data.get('profession', '')} "
+        f"{' '.join(job_data.get('required_skills') or [])}"
+    )
+    if any(normalize_text(keyword).strip() in haystack for keyword in TECHNICAL_ROLE_HINTS):
+        return "technical"
+
+    category_key = infer_profession_category(role_value, skills_value)
+    return "technical" if category_key in TECHNICAL_PROFESSION_KEYS else "non_technical"
+
+
+def resolve_stage_count(role_value="", skills_value="", job_data=None):
+    return 3 if resolve_assessment_track(role_value, skills_value, job_data) == "technical" else 2
 
 
 def parse_object_id(value):
@@ -507,6 +648,53 @@ def upload_resume_to_cloudinary(resume_file):
     if not resume_url:
         return None, "Cloudinary response missing file URL"
     return resume_url, None
+
+
+def upload_proctoring_video_to_cloudinary(video_file, assessment_type):
+    if not (Config.CLOUDINARY_CLOUD_NAME and Config.CLOUDINARY_API_KEY and Config.CLOUDINARY_API_SECRET):
+        return None, "Cloudinary credentials are not configured"
+
+    safe_type = re.sub(r"[^a-z0-9_-]", "_", str(assessment_type or "assessment").lower())
+    public_id = f"{uuid.uuid4().hex}_{safe_type}_proctoring"
+    folder = f"{Config.CLOUDINARY_FOLDER}/proctoring".strip("/")
+
+    try:
+        result = cloudinary.uploader.upload(
+            video_file,
+            resource_type="video",
+            folder=folder,
+            public_id=public_id,
+            overwrite=False
+        )
+    except Exception as e:
+        return None, f"Cloudinary video upload failed: {str(e)}"
+
+    video_url = result.get("secure_url") or result.get("url")
+    if not video_url:
+        return None, "Cloudinary response missing video URL"
+    return video_url, None
+
+
+def store_proctoring_video_in_mongodb(video_file, assessment_type):
+    try:
+        video_file.stream.seek(0)
+    except Exception:
+        pass
+
+    safe_type = re.sub(r"[^a-z0-9_-]", "_", str(assessment_type or "assessment").lower())
+    filename = secure_filename(video_file.filename or f"{safe_type}-proctoring.webm")
+    content_type = video_file.mimetype or "video/webm"
+    try:
+        file_id = fs.put(
+            video_file.stream,
+            filename=filename,
+            content_type=content_type,
+            assessment_type=safe_type,
+            created_at=utc_now()
+        )
+    except Exception as e:
+        return None, f"MongoDB video storage failed: {str(e)}"
+    return str(file_id), None
 
 
 def send_email(to_email, subject, body):
@@ -550,6 +738,13 @@ def infer_profession_category(role_value="", skills_value=""):
     return best_key
 
 
+for job in DEFAULT_JOBS:
+    track = resolve_assessment_track(job.get("title"), ",".join(job.get("required_skills") or []), job)
+    job["assessment_track"] = track
+    job["stage_count"] = 3 if track == "technical" else 2
+    job["seed_source"] = "zyra_curated_stage_roles_v2"
+
+
 def get_recent_mcq_question_texts(limit=80):
     recent_questions = []
     try:
@@ -567,6 +762,60 @@ def get_recent_mcq_question_texts(limit=80):
     except Exception:
         return recent_questions
     return recent_questions
+
+
+def get_recent_virtual_question_texts(limit=120):
+    recent_questions = []
+    try:
+        recent_users = users.find(
+            {"virtual_questions": {"$exists": True, "$type": "array"}},
+            {"virtual_questions": 1}
+        ).sort("virtual_completed_at", -1).limit(max(20, limit))
+        for user_doc in recent_users:
+            for question in user_doc.get("virtual_questions", []):
+                text = re.sub(r"\s+", " ", str(question or "").strip()).lower()
+                if text and text not in recent_questions:
+                    recent_questions.append(text)
+                if len(recent_questions) >= limit:
+                    return recent_questions
+    except Exception:
+        return recent_questions
+    return recent_questions
+
+
+def question_similarity_key(text):
+    return re.sub(r"[^a-z0-9\s]", " ", str(text or "").lower())
+
+
+def question_tokens(text):
+    stop_words = {
+        "the", "a", "an", "and", "or", "to", "of", "in", "on", "for", "with", "your",
+        "you", "how", "what", "why", "tell", "me", "about", "describe", "share", "give",
+        "example", "role", "work", "time", "would", "could", "did", "do", "as"
+    }
+    return {
+        token for token in question_similarity_key(text).split()
+        if len(token) > 2 and token not in stop_words
+    }
+
+
+def is_similar_question(candidate, existing_questions, threshold=0.62):
+    candidate_text = re.sub(r"\s+", " ", str(candidate or "").strip()).lower()
+    if not candidate_text:
+        return True
+    candidate_tokens = question_tokens(candidate_text)
+    for existing in existing_questions or []:
+        existing_text = re.sub(r"\s+", " ", str(existing or "").strip()).lower()
+        if not existing_text:
+            continue
+        if candidate_text == existing_text:
+            return True
+        existing_tokens = question_tokens(existing_text)
+        if candidate_tokens and existing_tokens:
+            overlap = len(candidate_tokens & existing_tokens) / max(1, min(len(candidate_tokens), len(existing_tokens)))
+            if overlap >= threshold:
+                return True
+    return False
 
 
 def extract_text_from_pdf_file(file_storage):
@@ -670,8 +919,13 @@ def analyze_resume_payload(application, job=None):
 
 def ensure_default_jobs():
     try:
+        default_job_ids = [job["id"] for job in DEFAULT_JOBS]
         if LEGACY_DEFAULT_JOB_IDS:
             jobs.delete_many({"id": {"$in": list(LEGACY_DEFAULT_JOB_IDS)}})
+        jobs.delete_many({
+            "created_by_role": "system",
+            "id": {"$nin": default_job_ids}
+        })
         for job in DEFAULT_JOBS:
             jobs.update_one({"id": job["id"]}, {"$set": job}, upsert=True)
     except Exception as e:
@@ -681,6 +935,8 @@ def ensure_default_jobs():
 def create_candidate_account_from_application(app_data):
     username = f"{str(app_data.get('first_name', 'candidate')).lower()}.{uuid.uuid4().hex[:4]}"
     raw_password = uuid.uuid4().hex[:8]
+    assessment_track = resolve_assessment_track(app_data.get("job_role"), app_data.get("skills"), app_data)
+    stage_count = 3 if assessment_track == "technical" else 2
 
     user_document = {
         "application_id": str(app_data["_id"]),
@@ -691,26 +947,48 @@ def create_candidate_account_from_application(app_data):
         "skills": app_data["skills"],
         "job_role": app_data["job_role"],
         "resume": app_data["resume"],
+        "job_description": app_data.get("job_description"),
+        "assessment_track": assessment_track,
+        "stage_count": stage_count,
         "username": username.lower(),
         "credential_username": username.lower(),
         "credential_plaintext": raw_password,
         "password": generate_password_hash(raw_password),
-        "credential_login_limit": 1,
+        "credential_login_limit": max(1, int(Config.MAX_LOGIN_ATTEMPTS)),
         "credential_login_count": 0,
         "interview_taken": False,
         "score": None,
         "status": "selected",
+        "ats_score": app_data.get("ats_score"),
+        "ats_decision": app_data.get("ats_decision"),
+        "ats_summary": app_data.get("ats_summary"),
+        "ats_breakdown": app_data.get("ats_breakdown"),
+        "ats_shortlist_reason": app_data.get("ats_shortlist_reason", "auto_shortlisted"),
         "virtual_round_enabled": False,
         "virtual_taken": False,
         "virtual_score": None,
         "virtual_questions": [],
         "virtual_answers": [],
+        "coding_round_enabled": False,
+        "coding_taken": False,
+        "coding_score": None,
+        "coding_feedback": None,
+        "coding_questions": [],
+        "coding_answers": [],
+        "coding_duration_seconds": None,
         "virtual_decision": "pending",
         "virtual_feedback": None,
         "virtual_duration_seconds": None,
+        "virtual_report": None,
+        "bias_review_required": False,
+        "interview_status": "not_started",
+        "interview_score": None,
+        "interview_recommendation": None,
+        "candidate_report": None,
         "mcq_completed_at": None,
         "updated_at": utc_now()
     }
+    user_document["candidate_report"] = build_candidate_report(user_document)
     users.insert_one(user_document)
     return username.lower(), raw_password
 
@@ -731,6 +1009,107 @@ def reset_candidate_login_usage(user_id, login_limit=None):
     if login_limit is not None:
         updates["credential_login_limit"] = max(1, int(login_limit))
     users.update_one({"_id": user_id}, {"$set": updates})
+
+
+def is_demo_candidate(user):
+    if not user:
+        return False
+    username = str(user.get("username") or user.get("credential_username") or "").strip().lower()
+    email = str(user.get("email") or "").strip().lower()
+    return bool(user.get("demo_user")) or username == Config.DEMO_CANDIDATE_USERNAME or email == Config.DEMO_CANDIDATE_EMAIL
+
+
+def cleanup_demo_candidate_artifacts(user_id):
+    user_id_string = str(user_id)
+    tests.delete_many({"user_id": user_id_string})
+    coding_tests.delete_many({"user_id": user_id_string})
+
+    try:
+        db.interviews.delete_many({"$or": [{"user_id": user_id}, {"user_id": user_id_string}]})
+    except Exception:
+        pass
+
+    try:
+        records = list(db.proctoring_recordings.find({"user_id": user_id_string}, {"mongo_file_id": 1}))
+        for record in records:
+            mongo_file_id = record.get("mongo_file_id")
+            if mongo_file_id:
+                try:
+                    fs.delete(ObjectId(mongo_file_id))
+                except Exception:
+                    pass
+        db.proctoring_recordings.delete_many({"user_id": user_id_string})
+    except Exception:
+        pass
+
+    try:
+        db.proctoring_events.delete_many({"$or": [{"user_id": user_id}, {"user_id": user_id_string}]})
+    except Exception:
+        pass
+
+
+def reset_demo_candidate_workflow(user_id):
+    demo_user = users.find_one({"_id": user_id})
+    if not demo_user:
+        return None
+
+    reset_payload = {
+        "status": "selected",
+        "interview_taken": False,
+        "score": None,
+        "mcq_score_percent": None,
+        "mcq_raw_score": None,
+        "mcq_total_questions": None,
+        "mcq_duration_seconds": None,
+        "mcq_time_expired": False,
+        "mcq_auto_submitted": False,
+        "mcq_proctoring_violations": 0,
+        "candidate_answers": [],
+        "questions_data": [],
+        "mcq_completed_at": None,
+        "coding_round_enabled": False,
+        "coding_taken": False,
+        "coding_score": None,
+        "coding_feedback": None,
+        "coding_questions": [],
+        "coding_answers": [],
+        "coding_duration_seconds": None,
+        "coding_proctoring_violations": 0,
+        "virtual_round_enabled": False,
+        "virtual_taken": False,
+        "virtual_score": None,
+        "virtual_questions": [],
+        "virtual_answers": [],
+        "virtual_feedback": None,
+        "virtual_duration_seconds": None,
+        "virtual_started_at": None,
+        "virtual_expires_at": None,
+        "virtual_time_expired": False,
+        "virtual_auto_submitted": False,
+        "virtual_report": None,
+        "virtual_decision": "pending",
+        "virtual_completed_at": None,
+        "bias_review_required": False,
+        "interview_status": "not_started",
+        "interview_score": None,
+        "interview_recommendation": None,
+        "interview_locked": False,
+        "interview_login_attempts": 0,
+        "last_interview_session": None,
+        "credential_login_count": 0,
+        "credential_login_limit": max(1, int(Config.DEMO_LOGIN_LIMIT)),
+        "workflow_demo_override": bool(Config.DEMO_ALWAYS_PROMOTE),
+        "demo_user": True,
+        "updated_at": utc_now()
+    }
+    reset_snapshot = dict(demo_user)
+    reset_snapshot.update(reset_payload)
+    reset_payload["candidate_report"] = build_candidate_report(reset_snapshot)
+
+    users.update_one({"_id": user_id}, {"$set": reset_payload})
+    cleanup_demo_candidate_artifacts(user_id)
+
+    return users.find_one({"_id": user_id})
 
 
 def send_candidate_credentials_email(user, subject, intro_lines):
@@ -757,11 +1136,134 @@ Hello {user['first_name']},
 Username: {username}
 Password: {raw_password}
 
-Login at: http://127.0.0.1:5000
+Login at: https://zyra-avatar.vercel.app/
 
 Regards,
-zyra HR
+HR Harsh
 """
+
+
+def ensure_demo_candidate():
+    demo_username = Config.DEMO_CANDIDATE_USERNAME
+    demo_email = Config.DEMO_CANDIDATE_EMAIL
+    demo_password = Config.DEMO_CANDIDATE_PASSWORD
+    demo_track = "technical"
+
+    existing = users.find_one({
+        "$or": [
+            {"username": demo_username},
+            {"credential_username": demo_username},
+            {"email": demo_email}
+        ]
+    })
+    demo_report = build_candidate_report({
+        "ats_score": 82,
+        "interview_taken": False,
+        "mcq_score_percent": 0,
+        "virtual_taken": False,
+        "virtual_score": 0,
+        "ats_breakdown": {
+            "matched_keywords": ["python", "flask", "api design"],
+            "missing_keywords": ["production monitoring"]
+        }
+    })
+    demo_document = {
+        "application_id": "demo-candidate",
+        "first_name": "Demo",
+        "last_name": "Candidate",
+        "email": demo_email,
+        "phone": "+91 90000 00000",
+        "skills": "Python, Flask, JavaScript, APIs, Communication",
+        "job_role": "Backend Developer",
+        "resume": "Demo profile for end-to-end workflow testing.",
+        "resume_summary": "Backend-focused candidate with Python, Flask, APIs, and practical project delivery experience.",
+        "job_description": "Build backend services, APIs, and integrations with solid communication and debugging skills.",
+        "assessment_track": demo_track,
+        "stage_count": 3,
+        "username": demo_username,
+        "credential_username": demo_username,
+        "credential_plaintext": demo_password,
+        "password": generate_password_hash(demo_password),
+        "credential_login_limit": max(1, int(Config.DEMO_LOGIN_LIMIT)),
+        "credential_login_count": 0,
+        "interview_taken": False,
+        "score": None,
+        "mcq_score_percent": None,
+        "status": "selected",
+        "ats_score": 82,
+        "ats_decision": "shortlisted",
+        "ats_summary": "Demo user was shortlisted because the resume aligns well with backend engineering expectations.",
+        "ats_breakdown": {
+            "required_skill_match": "Strong",
+            "preferred_skill_match": "Moderate",
+            "matched_keywords": ["python", "flask", "api design"],
+            "missing_keywords": ["production monitoring"]
+        },
+        "ats_shortlist_reason": "demo_seed_shortlisted",
+        "virtual_round_enabled": False,
+        "virtual_taken": False,
+        "virtual_score": None,
+        "virtual_questions": [],
+        "virtual_answers": [],
+        "coding_round_enabled": False,
+        "coding_taken": False,
+        "coding_score": None,
+        "coding_feedback": None,
+        "coding_questions": [],
+        "coding_answers": [],
+        "coding_duration_seconds": None,
+        "virtual_decision": "pending",
+        "virtual_feedback": None,
+        "virtual_duration_seconds": None,
+        "virtual_report": None,
+        "interview_status": "not_started",
+        "interview_score": None,
+        "interview_recommendation": None,
+        "candidate_report": demo_report,
+        "bias_review_required": False,
+        "workflow_demo_override": bool(Config.DEMO_ALWAYS_PROMOTE),
+        "demo_user": True,
+        "updated_at": utc_now()
+    }
+
+    if existing:
+        users.update_one(
+            {"_id": existing["_id"]},
+            {"$set": {
+                "job_role": demo_document["job_role"],
+                "resume_summary": demo_document["resume_summary"],
+                "job_description": demo_document["job_description"],
+                "assessment_track": demo_document["assessment_track"],
+                "stage_count": demo_document["stage_count"],
+                "username": demo_username,
+                "credential_username": demo_username,
+                "credential_plaintext": demo_password,
+                "password": generate_password_hash(demo_password),
+                "credential_login_limit": max(1, int(Config.DEMO_LOGIN_LIMIT)),
+                "credential_login_count": 0,
+                "email": demo_email,
+                "status": "selected",
+                "ats_score": demo_document["ats_score"],
+                "ats_decision": demo_document["ats_decision"],
+                "ats_summary": demo_document["ats_summary"],
+                "ats_breakdown": demo_document["ats_breakdown"],
+                "coding_round_enabled": False,
+                "coding_taken": False,
+                "coding_score": None,
+                "coding_feedback": None,
+                "coding_questions": [],
+                "coding_answers": [],
+                "coding_duration_seconds": None,
+                "candidate_report": demo_report,
+                "bias_review_required": False,
+                "workflow_demo_override": bool(Config.DEMO_ALWAYS_PROMOTE),
+                "demo_user": True,
+                "updated_at": utc_now()
+            }}
+        )
+        return
+
+    users.insert_one(demo_document)
     return send_email(user["email"], subject, body)
 
 
@@ -878,6 +1380,86 @@ def ensure_mcq_question_quality(questions, user=None):
         })
 
     return prepared
+
+
+def query_groq_text(prompt_text, system_message="You are a helpful assistant.", model_name=None, max_tokens=800, temperature=0.2):
+    if not Config.GROQ_API_KEY:
+        return None, {"provider": "groq", "error": "GROQ_API_KEY not configured"}
+
+    payload = {
+        "model": model_name or Config.GROQ_TEXT_MODEL,
+        "messages": [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": prompt_text}
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "top_p": 0.95
+    }
+    headers = {
+        "Authorization": f"Bearer {Config.GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    try:
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=45
+        )
+    except Exception as e:
+        return None, {"provider": "groq", "error": f"Request failed: {str(e)}"}
+
+    if response.status_code != 200:
+        return None, {"provider": "groq", "status_code": response.status_code, "details": response.text}
+
+    result = response.json()
+    try:
+        content = result["choices"][0]["message"]["content"]
+    except Exception:
+        return None, {"provider": "groq", "error": "Invalid response format", "raw": result}
+    return str(content or "").strip(), None
+
+
+def generate_mcq_with_groq(prompt_text, num_questions):
+    groq_prompt = f"""
+{prompt_text}
+
+Generate exactly {num_questions} multiple choice interview questions.
+Return ONLY valid JSON in this exact format:
+{{
+  "questions": [
+    {{
+      "question": "Question text",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "answer": 0
+    }}
+  ]
+}}
+"""
+    content, err = query_groq_text(
+        groq_prompt,
+        system_message="You generate professional, role-specific MCQ interview questions and return valid JSON only.",
+        model_name=Config.GROQ_MCQ_MODEL,
+        max_tokens=1600,
+        temperature=0.2
+    )
+    if not content:
+        return None, err
+
+    parsed = extract_json_block(content)
+    if isinstance(parsed, dict):
+        questions = parsed.get("questions")
+    elif isinstance(parsed, list):
+        questions = parsed
+    else:
+        questions = None
+
+    normalized = normalize_mcq_questions(questions)
+    if len(normalized) < num_questions:
+        return None, {"provider": "groq", "error": "Groq returned insufficient valid questions", "count": len(normalized)}
+    return {"questions": normalized[:num_questions]}, None
 
 
 def generate_mcq_with_ollama(prompt_text, num_questions):
@@ -1185,7 +1767,7 @@ Each question must:
     attempts = 0
     max_attempts = max(8, total_count)
 
-    provider_order = ["ollama", "hf"] if Config.MCQ_USE_OLLAMA else ["hf", "ollama"]
+    provider_order = ["groq", "ollama"] if Config.MCQ_USE_OLLAMA else ["groq"]
 
     while len(collected) < total_count and attempts < max_attempts:
         attempts += 1
@@ -1208,18 +1790,18 @@ Also avoid wording or scenarios similar to these recently used questions across 
         batch_errors = []
 
         for provider in provider_order:
-            if provider == "ollama":
+            if provider == "groq":
+                candidate_result, err = generate_mcq_with_groq(prompt, batch_size)
+                if candidate_result:
+                    result = candidate_result
+                    break
+                batch_errors.append({"provider": "groq", "details": err})
+            elif provider == "ollama":
                 candidate_result, err = generate_mcq_with_ollama(prompt, batch_size)
                 if candidate_result:
                     result = candidate_result
                     break
                 batch_errors.append({"provider": "ollama", "details": err})
-            else:
-                candidate_result = generate_mcq(prompt, batch_size)
-                if candidate_result and not (isinstance(candidate_result, dict) and candidate_result.get("error")):
-                    result = candidate_result
-                    break
-                batch_errors.append({"provider": "hf", "details": candidate_result})
 
         if not result:
             last_error = {"error": "All MCQ providers failed for batch", "details": batch_errors}
@@ -1309,35 +1891,92 @@ def parse_virtual_question_candidates(content):
     return lines
 
 
-def normalize_virtual_questions(raw_questions, total_count):
+def normalize_virtual_questions(raw_questions, total_count, excluded_questions=None):
     normalized = []
-    seen = set()
+    seen = []
+    excluded = [str(item or "").strip() for item in (excluded_questions or []) if str(item or "").strip()]
     for q in raw_questions or []:
         text = re.sub(r"\s+", " ", str(q or "").strip())
         if not text:
             continue
         if len(text) < 18:
             continue
-        dedupe_key = text.lower()
-        if dedupe_key in seen:
+        if is_similar_question(text, seen + excluded):
             continue
-        seen.add(dedupe_key)
+        seen.append(text)
         normalized.append(text)
         if len(normalized) >= total_count:
             break
     return normalized
 
 
-def generate_virtual_questions_with_fallback(user, total_count):
+def enforce_virtual_question_mix(questions, user, total_count, excluded_questions=None):
+    role = str(user.get("job_role") or "this role").strip() or "this role"
+    skills = str(user.get("skills") or "the required skills").strip() or "the required skills"
+    skill_list = split_csv(skills)
+    primary_skill = skill_list[0] if skill_list else skills
+    excluded = [str(item or "").strip() for item in (excluded_questions or []) if str(item or "").strip()]
+    generated = normalize_virtual_questions(questions, total_count, excluded)
+    fallback_professional = [
+        f"Walk me through the professional experiences that best prepared you for the {role} role.",
+        "Tell me about a work situation where you had to learn quickly and still deliver a good outcome.",
+        "Describe how you prefer to collaborate when a project requires input from different people.",
+        f"What professional achievement are you most proud of, and how does it connect to {role} work?",
+        "Share a moment when feedback changed how you approached your work.",
+        f"What motivates you to keep improving in {role} work?",
+        "Describe a professional decision that taught you something important about your work style."
+    ]
+    professional_questions = normalize_virtual_questions(generated[:3] + fallback_professional, 3, excluded)
+
+    role_source = generated[3:] + generate_deterministic_virtual_questions(user, max(total_count * 3, total_count - len(professional_questions)))
+    role_questions = normalize_virtual_questions(role_source, max(0, total_count - len(professional_questions)), excluded + professional_questions)
+    mixed = professional_questions + role_questions
+    fallback_role_templates = [
+        f"How would you use {primary_skill} to handle a measurable delivery challenge in the {role} role?",
+        f"What would be your first three steps when joining a new {role} project with unclear requirements?",
+        f"Describe how you would explain a difficult {role} tradeoff to a non-technical stakeholder.",
+        f"If a project using {primary_skill} started falling behind, how would you diagnose the cause and recover?",
+        f"What quality checks would you put in place before handing over important {role} work?",
+        f"How would you prioritize two urgent {role} tasks when both have business impact?",
+        f"Tell me how you would turn incomplete requirements into an actionable {role} plan.",
+        f"What signals would you track to know whether your {role} solution is working well?"
+    ]
+    for filler in fallback_role_templates:
+        if len(mixed) >= total_count:
+            break
+        if not is_similar_question(filler, excluded + mixed):
+            mixed.append(filler)
+
+    variant_index = 1
+    while len(mixed) < total_count and variant_index <= total_count * 2:
+        filler = (
+            f"For a fresh {role} scenario involving {primary_skill}, a deadline risk, "
+            f"and stakeholder alignment challenge {variant_index}, what action plan would you follow?"
+        )
+        if not is_similar_question(filler, excluded + mixed, threshold=0.78):
+            mixed.append(filler)
+        variant_index += 1
+    return mixed[:total_count]
+
+
+def generate_virtual_questions_with_fallback(user, total_count, excluded_questions=None):
+    excluded_questions = [re.sub(r"\s+", " ", str(item or "").strip()).lower() for item in (excluded_questions or []) if str(item or "").strip()]
+    role_count = max(0, total_count - 3)
+    exclusion_text = "\n".join([f"- {item}" for item in excluded_questions[:40]]) or "- None"
     prompt = f"""
 Generate exactly {total_count} high-quality virtual interview questions for this candidate.
 Candidate skills: {user.get('skills')}
 Candidate role: {user.get('job_role')}
 
 Question quality rules:
+- The first 3 questions must be about personal professional life: background, strengths, work style, career goals, or a meaningful professional challenge.
+- The remaining {role_count} questions must be role-based for the candidate's job role and skills.
 - Include practical, scenario-based and behavioral questions.
 - Test depth, communication, and problem-solving.
-- Avoid duplicate or generic questions.
+- Avoid duplicate, generic, or commonly repeated interview questions.
+- Do not repeat or closely paraphrase any question from any earlier stage or candidate history.
+- Avoid these previously used questions and similar wording:
+{exclusion_text}
 - Keep each question concise and interview-ready.
 
 Return ONLY valid JSON:
@@ -1346,149 +1985,81 @@ Return ONLY valid JSON:
 }}
 """
 
-    providers = ["ollama", "hf"] if Config.USE_LOCAL_VIRTUAL_MODEL else ["hf", "ollama"]
-    hf_models = []
-    for m in [Config.VIRTUAL_HF_MODEL, Config.MODEL, Config.MCQ_SECONDARY_MODEL, Config.MCQ_TERTIARY_MODEL]:
-        if m and m not in hf_models:
-            hf_models.append(m)
-    max_hf_models = max(1, int(os.getenv("VIRTUAL_HF_MAX_MODELS", "2")))
-    hf_models = hf_models[:max_hf_models]
+    providers = ["groq", "ollama"] if Config.MCQ_USE_OLLAMA else ["groq"]
 
     errors = []
     best_ai_questions = []
 
     for provider in providers:
-        if provider == "ollama":
+        if provider == "groq":
+            content, err = query_groq_text(
+                prompt,
+                system_message="You generate role-specific interview questions and return valid JSON only.",
+                model_name=Config.GROQ_TEXT_MODEL,
+                max_tokens=900,
+                temperature=0.35
+            )
+            if not content:
+                errors.append({"provider": "groq", "details": err})
+                continue
+
+            questions = normalize_virtual_questions(parse_virtual_question_candidates(content), total_count, excluded_questions)
+
+            if len(questions) >= total_count:
+                return enforce_virtual_question_mix(questions[:total_count], user, total_count, excluded_questions), None
+            if len(questions) > len(best_ai_questions):
+                best_ai_questions = questions
+            errors.append({"provider": "groq", "error": "Insufficient virtual questions", "count": len(questions)})
+        elif provider == "ollama":
             content, err = query_ollama(prompt, model_name=Config.OLLAMA_MODEL)
             if not content:
                 errors.append({"provider": "ollama", "details": err})
                 continue
 
-            questions = normalize_virtual_questions(parse_virtual_question_candidates(content), total_count)
+            questions = normalize_virtual_questions(parse_virtual_question_candidates(content), total_count, excluded_questions)
 
             if len(questions) >= total_count:
-                return questions[:total_count], None
+                return enforce_virtual_question_mix(questions[:total_count], user, total_count, excluded_questions), None
             if len(questions) > len(best_ai_questions):
                 best_ai_questions = questions
             errors.append({"provider": "ollama", "error": "Insufficient virtual questions", "count": len(questions)})
-        else:
-            for model in hf_models:
-                content, err = query_hf_chat(prompt, model, max_tokens=800, request_timeout=25)
-                if not content:
-                    errors.append({"provider": "hf", "model": model, "details": err})
-                    continue
-
-                questions = normalize_virtual_questions(parse_virtual_question_candidates(content), total_count)
-
-                if len(questions) >= total_count:
-                    return questions[:total_count], None
-                if len(questions) > len(best_ai_questions):
-                    best_ai_questions = questions
-                errors.append({"provider": "hf", "model": model, "error": "Insufficient virtual questions", "count": len(questions)})
 
     if best_ai_questions:
-        deterministic_fill = generate_deterministic_virtual_questions(user, total_count)
-        combined = normalize_virtual_questions(best_ai_questions + deterministic_fill, total_count)
-        if len(combined) >= total_count:
-            return combined[:total_count], {"fallback": "partial_ai_with_deterministic_fill", "errors": errors}
+        deterministic_fill = generate_deterministic_virtual_questions(user, total_count * 3)
+        combined = normalize_virtual_questions(best_ai_questions + deterministic_fill, total_count, excluded_questions)
+        mixed = enforce_virtual_question_mix(combined, user, total_count, excluded_questions)
+        if len(mixed) >= total_count:
+            return mixed, {"fallback": "partial_ai_with_deterministic_fill", "errors": errors}
 
-    deterministic = generate_deterministic_virtual_questions(user, total_count)
-    deterministic = normalize_virtual_questions(deterministic, total_count)
-    if deterministic and len(deterministic) >= total_count:
-        return deterministic[:total_count], {"fallback": "deterministic", "errors": errors}
+    deterministic = generate_deterministic_virtual_questions(user, total_count * 3)
+    deterministic = normalize_virtual_questions(deterministic, total_count, excluded_questions)
+    mixed = enforce_virtual_question_mix(deterministic, user, total_count, excluded_questions)
+    if mixed and len(mixed) >= total_count:
+        return mixed, {"fallback": "deterministic", "errors": errors}
     return None, {"errors": errors}
 
 
-def query_hf_chat(prompt_text, model_name, max_tokens=800, request_timeout=60):
-    if not Config.HF_TOKEN:
-        return None, {"provider": "hf", "error": "HF_TOKEN not configured"}
-    headers = {
-        "Authorization": f"Bearer {Config.HF_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": model_name,
-        "messages": [
-            {"role": "system", "content": "You are an interview question generator. Output JSON only."},
-            {"role": "user", "content": prompt_text}
-        ],
-        "temperature": 0.2,
-        "max_tokens": max_tokens
-    }
-    try:
-        response = requests.post(Config.HF_API_URL, headers=headers, json=payload, timeout=request_timeout)
-    except Exception as e:
-        return None, {"provider": "hf", "error": f"Request failed: {str(e)}"}
-
-    if response.status_code != 200:
-        return None, {"provider": "hf", "status_code": response.status_code, "details": response.text}
-
-    result = response.json()
-    try:
-        content = result["choices"][0]["message"]["content"]
-    except Exception:
-        return None, {"provider": "hf", "error": "Invalid response format", "raw": result}
-    return content, None
-
-
-def query_hf_text(prompt_text, model_name, system_message="You are a helpful assistant.", max_tokens=250):
-    if not Config.HF_TOKEN:
-        return None, {"provider": "hf", "error": "HF_TOKEN not configured"}
-    headers = {
-        "Authorization": f"Bearer {Config.HF_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": model_name,
-        "messages": [
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": prompt_text}
-        ],
-        "temperature": 0.3,
-        "max_tokens": max_tokens
-    }
-    try:
-        response = requests.post(Config.HF_API_URL, headers=headers, json=payload, timeout=60)
-    except Exception as e:
-        return None, {"provider": "hf", "error": f"Request failed: {str(e)}"}
-
-    if response.status_code != 200:
-        return None, {"provider": "hf", "status_code": response.status_code, "details": response.text}
-
-    result = response.json()
-    try:
-        content = result["choices"][0]["message"]["content"]
-    except Exception:
-        return None, {"provider": "hf", "error": "Invalid response format", "raw": result}
-    return str(content or "").strip(), None
-
-
 def evaluate_virtual_submission_with_fallback(evaluation_prompt):
-    models = []
-    for model in [
-        Config.VIRTUAL_HF_MODEL,
-        Config.MODEL,
-        getattr(Config, "MCQ_SECONDARY_MODEL", None),
-        getattr(Config, "MCQ_TERTIARY_MODEL", None)
-    ]:
-        if model and model not in models:
-            models.append(model)
-
     errors = []
-    for model in models:
-        content, err = query_hf_text(
-            evaluation_prompt,
-            model,
-            system_message="You are an interview evaluator. Return valid JSON only with score and feedback.",
-            max_tokens=500
-        )
+    providers = ["groq", "ollama"] if Config.MCQ_USE_OLLAMA else ["groq"]
+    for provider in providers:
+        if provider == "groq":
+            content, err = query_groq_text(
+                evaluation_prompt,
+                system_message="You are an interview evaluator. Return valid JSON only with score and feedback.",
+                model_name=Config.GROQ_EVAL_MODEL,
+                max_tokens=700,
+                temperature=0.2
+            )
+        else:
+            content, err = query_ollama(evaluation_prompt, model_name=Config.OLLAMA_MODEL)
         if not content:
-            errors.append({"model": model, "error": err})
+            errors.append({"provider": provider, "error": err})
             continue
 
         parsed = extract_json_block(content)
         if isinstance(parsed, dict):
-            return parsed, {"source": "hf", "model": model}
+            return parsed, {"source": provider}
 
         number_match = re.search(r"\d+(\.\d+)?", content or "")
         if number_match:
@@ -1499,10 +2070,10 @@ def evaluate_virtual_submission_with_fallback(evaluation_prompt):
             return {
                 "score": score_val,
                 "feedback": "Virtual interview completed. Detailed structured feedback unavailable."
-            }, {"source": "hf", "model": model, "format": "text_fallback"}
+            }, {"source": provider, "format": "text_fallback"}
 
         errors.append({
-            "model": model,
+            "provider": provider,
             "error": "Invalid evaluator response format",
             "raw_output": str(content)[:600]
         })
@@ -1734,7 +2305,8 @@ Rules:
 
 
 def generate_adaptive_virtual_question(user, previous_question, answer, target_difficulty, question_number, used_questions=None):
-    used_questions = [str(item or "").strip().lower() for item in (used_questions or []) if str(item or "").strip()]
+    used_questions = [str(item or "").strip() for item in (used_questions or []) if str(item or "").strip()]
+    used_question_text = "\n".join([f"- {item}" for item in used_questions[:35]]) or "- None"
     prompt = f"""
 Create one role-specific virtual interview question.
 
@@ -1748,6 +2320,9 @@ Question number: {question_number}
 Instructions:
 - Ask exactly one new question
 - Do not repeat or closely paraphrase the previous question
+- Do not repeat or closely paraphrase any question already used in the MCQ stage, avatar stage, or candidate history
+- Avoid these used questions and similar wording:
+{used_question_text}
 - Make the question {target_difficulty} level
 - If the candidate did well, increase depth and scenario complexity
 - If the candidate struggled, keep it practical and more guided
@@ -1756,17 +2331,20 @@ Instructions:
 Return ONLY valid JSON:
 {{ "question": "..." }}
 """
-    providers = ["ollama", "hf"] if Config.USE_LOCAL_VIRTUAL_MODEL else ["hf", "ollama"]
+    providers = ["groq", "ollama"] if Config.MCQ_USE_OLLAMA else ["groq"]
     for provider in providers:
-        if provider == "ollama":
+        if provider == "groq":
+            content, err = query_groq_text(
+                prompt,
+                system_message="You generate one concise interview question in valid JSON.",
+                model_name=Config.GROQ_TEXT_MODEL,
+                max_tokens=220,
+                temperature=0.35
+            )
+        elif provider == "ollama":
             content, err = query_ollama(prompt, model_name=Config.OLLAMA_MODEL)
         else:
-            content, err = query_hf_text(
-                prompt,
-                Config.VIRTUAL_HF_MODEL,
-                system_message="You generate one concise interview question in valid JSON.",
-                max_tokens=180
-            )
+            content, err = None, {"provider": provider, "error": "Unsupported provider"}
         if not content:
             continue
         parsed = extract_json_block(content)
@@ -1777,20 +2355,237 @@ Return ONLY valid JSON:
             lines = [line.strip("-* \t") for line in str(content).splitlines() if line.strip()]
             candidate_question = lines[0] if lines else ""
         normalized = re.sub(r"\s+", " ", candidate_question).strip()
-        if normalized and normalized.lower() not in used_questions:
+        if normalized and not is_similar_question(normalized, used_questions):
             return normalized
 
     role = str(user.get("job_role", "")).strip() or "this role"
     skill = split_csv(user.get("skills"))[0] if split_csv(user.get("skills")) else role
     fallback_by_difficulty = {
-        "foundation": f"Walk me through a practical situation where you used {skill} and what result you achieved.",
-        "intermediate": f"Describe a challenging situation in {role} where you had to make a decision with limited time or information.",
-        "advanced": f"In {role}, tell me about a high-stakes problem you solved, how you evaluated options, and why you chose your final approach."
+        "foundation": [
+            f"Walk me through a practical situation where you used {skill} and what result you achieved.",
+            f"How do you usually prepare before starting a new {role} task that involves {skill}?"
+        ],
+        "intermediate": [
+            f"Describe a challenging situation in {role} where you had to make a decision with limited time or information.",
+            f"If a {role} project had unclear requirements and changing priorities, how would you move it forward?"
+        ],
+        "advanced": [
+            f"In {role}, tell me about a high-stakes problem you solved, how you evaluated options, and why you chose your final approach.",
+            f"How would you design a long-term improvement plan for a complex {role} workflow involving {skill}?"
+        ]
     }
-    fallback = fallback_by_difficulty.get(target_difficulty, fallback_by_difficulty["intermediate"])
-    if fallback.lower() in used_questions:
-        fallback = f"For {role}, explain a recent example of ownership, decision making, and measurable impact."
-    return fallback
+    for fallback in fallback_by_difficulty.get(target_difficulty, fallback_by_difficulty["intermediate"]):
+        if not is_similar_question(fallback, used_questions):
+            return fallback
+    return f"For {role}, explain a fresh example of ownership, decision making, and measurable impact using {skill}."
+
+
+def normalize_coding_questions(raw_questions):
+    normalized = []
+    if not isinstance(raw_questions, list):
+        return normalized
+
+    for idx, item in enumerate(raw_questions, start=1):
+        if not isinstance(item, dict):
+            continue
+        prompt = str(item.get("prompt", "")).strip()
+        title = str(item.get("title", "")).strip() or f"Scenario {idx}"
+        starter_code = str(item.get("starter_code", "")).rstrip()
+        sample_input = str(item.get("sample_input", "")).strip()
+        sample_output = str(item.get("sample_output", "")).strip()
+        languages = item.get("languages") or ["Python", "JavaScript"]
+        if not prompt:
+            continue
+        cleaned_languages = [str(language).strip() for language in languages if str(language).strip()]
+        normalized.append({
+            "id": idx,
+            "title": title,
+            "prompt": prompt,
+            "starter_code": starter_code,
+            "sample_input": sample_input,
+            "sample_output": sample_output,
+            "languages": cleaned_languages[:3] or ["Python", "JavaScript"],
+        })
+    return normalized
+
+
+def generate_deterministic_coding_questions(user, total_count=2):
+    role = str(user.get("job_role", "")).strip() or "Software Engineer"
+    role_key = normalize_text(role)
+    templates = [
+        {
+            "title": "API Reliability Scenario",
+            "prompt": f"Build a function for the {role} role that validates incoming records, skips malformed rows safely, and returns a clean summary with processed count, rejected count, and error reasons.",
+            "starter_code": "def summarize_records(records):\n    # handle empty and malformed input safely\n    summary = {\n        'processed': 0,\n        'rejected': 0,\n        'errors': []\n    }\n    return summary",
+            "sample_input": "[{'id': 1, 'status': 'ok'}, {'id': None, 'status': 'bad'}]",
+            "sample_output": "{'processed': 1, 'rejected': 1, 'errors': ['missing id']}",
+            "languages": ["Python", "JavaScript"],
+        },
+        {
+            "title": "Role-Based Scenario",
+            "prompt": f"Create a scenario-based solution for {role} that transforms raw input into interview-ready insights. Focus on readable structure, edge-case handling, and one clear helper function.",
+            "starter_code": "def solve_case(items):\n    if not items:\n        return []\n    result = []\n    return result",
+            "sample_input": "Input list of role-specific records",
+            "sample_output": "Processed list or summary object",
+            "languages": ["Python", "JavaScript"],
+        },
+    ]
+
+    if "frontend" in role_key or "ui" in role_key:
+        templates[0]["title"] = "Component State Scenario"
+        templates[0]["prompt"] = "Write a function that receives a list of UI filter actions and returns the final visible item ids without mutating the original data."
+        templates[0]["starter_code"] = "function applyFilters(items, actions) {\n  if (!Array.isArray(items)) return [];\n  return items;\n}"
+        templates[0]["sample_input"] = "items=[{id:1, tag:'react'}], actions=['tag:react']"
+        templates[0]["sample_output"] = "[1]"
+        templates[0]["languages"] = ["JavaScript", "TypeScript", "Python"]
+    elif "backend" in role_key or "api" in role_key:
+        templates[1]["title"] = "Service Aggregation Scenario"
+        templates[1]["prompt"] = "Implement a function that aggregates service health records and returns uptime percentage, degraded services, and unresolved incident ids."
+        templates[1]["starter_code"] = "def build_health_summary(records):\n    return {\n        'uptime_percent': 0,\n        'degraded_services': [],\n        'incident_ids': []\n    }"
+        templates[1]["sample_input"] = "[{'service':'auth','status':'up'},{'service':'mail','status':'degraded','incident_id':'INC-12'}]"
+        templates[1]["sample_output"] = "{'uptime_percent': 50, 'degraded_services': ['mail'], 'incident_ids': ['INC-12']}"
+
+    return templates[:max(1, int(total_count or 1))]
+
+
+def generate_coding_questions_with_fallback(user, total_count=2):
+    prompt = f"""
+Generate exactly {total_count} scenario-based coding assessment questions for this candidate.
+
+Role: {user.get('job_role')}
+Skills: {user.get('skills')}
+Assessment rules:
+- Questions must be specific to the role
+- Each item must be practical and interview-ready
+- Include starter_code, sample_input, sample_output, and 2 or 3 language options
+- Keep the prompt concise but detailed enough to implement
+
+Return ONLY valid JSON:
+{{
+  "questions": [
+    {{
+      "title": "Short scenario title",
+      "prompt": "Problem statement",
+      "starter_code": "starter code",
+      "sample_input": "sample input",
+      "sample_output": "sample output",
+      "languages": ["Python", "JavaScript"]
+    }}
+  ]
+}}
+"""
+
+    errors = []
+    providers = ["groq", "ollama"] if Config.MCQ_USE_OLLAMA else ["groq"]
+    for provider in providers:
+        if provider == "groq":
+            content, err = query_groq_text(
+                prompt,
+                system_message="You generate scenario-based coding interview tasks and return valid JSON only.",
+                model_name=Config.GROQ_MCQ_MODEL,
+                max_tokens=1400,
+                temperature=0.3
+            )
+        else:
+            content, err = query_ollama(prompt, model_name=Config.OLLAMA_MODEL)
+
+        if not content:
+            errors.append({"provider": provider, "details": err})
+            continue
+
+        parsed = extract_json_block(content)
+        questions = parsed.get("questions") if isinstance(parsed, dict) else parsed
+        normalized = normalize_coding_questions(questions)
+        if len(normalized) >= total_count:
+            return normalized[:total_count], None
+        errors.append({"provider": provider, "error": "Insufficient coding questions", "count": len(normalized)})
+
+    deterministic = normalize_coding_questions(generate_deterministic_coding_questions(user, total_count))
+    if deterministic:
+        return deterministic[:total_count], {"fallback": "deterministic", "errors": errors}
+    return None, {"errors": errors}
+
+
+def evaluate_coding_submission_locally(questions, answers):
+    normalized_answers = answers if isinstance(answers, list) else []
+    non_empty = [item for item in normalized_answers if str((item or {}).get("code", "")).strip()]
+    if not non_empty:
+        return {
+            "score": 0.0,
+            "feedback": "No code was submitted for the technical round.",
+            "strengths": [],
+            "improvements": ["Submit at least one working solution with clear logic."],
+        }
+
+    score_signals = []
+    for item in non_empty:
+        code = str(item.get("code", "")).strip()
+        local_score = 4.0
+        if "return" in code:
+            local_score += 1.5
+        if any(token in code for token in ["for ", "while ", ".map(", ".filter("]):
+            local_score += 1.0
+        if any(token in code for token in ["if ", "try:", "catch", "except"]):
+            local_score += 1.0
+        if len(code.splitlines()) >= 6:
+            local_score += 1.0
+        if len(code) >= 180:
+            local_score += 1.0
+        score_signals.append(min(10.0, local_score))
+
+    average_score = round(sum(score_signals) / max(1, len(score_signals)), 1)
+    return {
+        "score": average_score,
+        "feedback": "Technical round submitted. Stronger edge-case handling and clearer decomposition would improve the solution quality.",
+        "strengths": ["Submitted working code for the coding round.", "Included implementation structure instead of leaving the prompt empty."],
+        "improvements": ["Add more defensive checks and sample-case coverage.", "Explain naming and structure through cleaner code organization."],
+    }
+
+
+def evaluate_coding_submission_with_fallback(user, questions, answers):
+    prompt = f"""
+Evaluate this coding assessment submission for the role below.
+
+Role: {user.get('job_role')}
+Skills: {user.get('skills')}
+Questions: {questions}
+Answers: {answers}
+
+Return ONLY valid JSON:
+{{
+  "score": 0,
+  "feedback": "short paragraph",
+  "strengths": ["one", "two"],
+  "improvements": ["one", "two"]
+}}
+
+Rules:
+- score must be out of 10
+- be strict but fair
+- focus on problem solving, code structure, and likely correctness
+"""
+
+    providers = ["groq", "ollama"] if Config.MCQ_USE_OLLAMA else ["groq"]
+    for provider in providers:
+        if provider == "groq":
+            content, err = query_groq_text(
+                prompt,
+                system_message="You are a senior coding evaluator. Return valid JSON only.",
+                model_name=Config.GROQ_EVAL_MODEL,
+                max_tokens=650,
+                temperature=0.2
+            )
+        else:
+            content, err = query_ollama(prompt, model_name=Config.OLLAMA_MODEL)
+
+        if not content:
+            continue
+
+        parsed = extract_json_block(content)
+        if isinstance(parsed, dict):
+            return parsed, {"source": provider}
+
+    return evaluate_coding_submission_locally(questions, answers), {"source": "local"}
 
 
 def _did_auth_header_value():
@@ -1882,21 +2677,122 @@ def generate_did_talk_video(question_text):
 # -------------------------------
 # MAIN PAGE
 # -------------------------------
+FRONTEND_PAGES = {
+    "index",
+    "apply",
+    "user_login",
+    "user_dashboard",
+    "hr_login",
+    "admin_dashboard",
+    "mcq_test",
+    "avatar_interview",
+    "report",
+}
+
+
 @app.route("/")
 def home():
     ensure_default_jobs()
-    return render_template("main.html")
+    ensure_demo_candidate()
+    return render_template("index.html")
+
+
+@app.route("/<page_name>.html")
+def frontend_page(page_name):
+    if page_name not in FRONTEND_PAGES:
+        abort(404)
+    if page_name == "admin_dashboard" and not session.get("admin"):
+        return redirect("/admin/login")
+    if page_name == "report":
+        return redirect("/admin/dashboard" if session.get("admin") else "/admin/login")
+    if page_name in {"user_dashboard", "mcq_test", "avatar_interview"}:
+        if not session.get("candidate_id"):
+            return redirect("/candidate/login")
+        user = users.find_one({"_id": ObjectId(session["candidate_id"])})
+        if not user:
+            session.clear()
+            return redirect("/candidate/login")
+        if page_name == "mcq_test" and user.get("interview_taken"):
+            return redirect("/user_dashboard.html")
+        if page_name == "avatar_interview" and (
+            not user.get("interview_taken")
+            or not user.get("virtual_round_enabled")
+            or user.get("virtual_taken")
+        ):
+            return redirect("/user_dashboard.html")
+    return render_template(f"{page_name}.html")
+
+
+@app.route("/candidate/login")
+def candidate_login_page():
+    ensure_default_jobs()
+    ensure_demo_candidate()
+    return render_template("user_login.html")
 
 
 @app.route("/register")
 def register_page():
     ensure_default_jobs()
-    return render_template("register.html")
+    return render_template("user_login.html")
 
 
 @app.route("/resume-template")
 def resume_template():
-    return render_template("resume_template.html")
+    return redirect("/admin/dashboard" if session.get("admin") else "/admin/login")
+
+
+@app.route("/admin")
+@app.route("/admin/dashboard")
+def admin_dashboard():
+    """Render the HR dashboard for viewing and managing applications"""
+    if not session.get("admin"):
+        return redirect("/admin/login")
+    ensure_demo_candidate()
+    return render_template("admin_dashboard.html")
+
+
+@app.route("/candidate/interview-v2")
+def candidate_interview_v2():
+    if not session.get("candidate_id"):
+        return redirect("/")
+
+    user = users.find_one({"_id": ObjectId(session["candidate_id"])})
+    if not user:
+        session.clear()
+        return redirect("/")
+    if user.get("status") == "rejected":
+        return redirect("/")
+    if not user.get("interview_taken"):
+        return redirect("/")
+    if user.get("virtual_taken"):
+        return redirect("/")
+    if not user.get("virtual_round_enabled"):
+        return redirect("/")
+
+    return render_template("avatar_interview.html")
+
+
+@app.route("/media/interview-avatar")
+def interview_avatar_media():
+    media_path = os.path.join(app.root_path, "Professional_Video_For_Interview.mp4")
+    if not os.path.exists(media_path):
+        return jsonify({"error": "Interview avatar video not found"}), 404
+    return send_file(media_path, mimetype="video/mp4", conditional=True)
+
+
+@app.route("/admin/login-page")
+@app.route("/admin/login")
+def admin_login_page():
+    """Render admin login page"""
+    return render_template("hr_login.html")
+
+
+@app.route("/admin/logout")
+def admin_logout():
+    """Logout admin user"""
+    session.clear()
+    return redirect("/")
+
 
 # -------------------------------
 # JOBS
@@ -1935,6 +2831,8 @@ def create_job():
         "created_by_role": get_staff_role(),
         "created_at": utc_now()
     }
+    document["assessment_track"] = resolve_assessment_track(document.get("title"), ",".join(document.get("required_skills") or []), document)
+    document["stage_count"] = 3 if document["assessment_track"] == "technical" else 2
     jobs.insert_one(document)
     response_job = dict(document)
     response_job["_id"] = str(response_job.get("_id", ""))
@@ -1970,6 +2868,8 @@ def apply():
     job_role = str(data.get("job_role", "")).strip() or str((selected_job or {}).get("title", "")).strip()
     if not job_role:
         return jsonify({"error": "Job role is required"}), 400
+    assessment_track = resolve_assessment_track(job_role, data.get("skills"), selected_job)
+    stage_count = resolve_stage_count(job_role, data.get("skills"), selected_job)
 
     resume_text, resume_text_error = extract_text_from_pdf_file(resume)
     resume_name = secure_filename(resume.filename or "resume.pdf")
@@ -1986,6 +2886,19 @@ def apply():
     }
     ats = analyze_resume_payload(analysis_payload, selected_job)
 
+    # Determine shortlist reason: auto-shortlisted if resume score meets threshold, else needs HR review.
+    ats_score = ats["score"]
+    auto_shortlisted = ats_score >= RESUME_AUTO_CREDENTIAL_THRESHOLD_PERCENT
+    shortlist_reason = "auto_shortlisted" if auto_shortlisted else "needs_hr_review"
+    
+    # Status logic: auto-shortlist at threshold, reject if ATS decision is rejected, else pending for HR review.
+    if auto_shortlisted:
+        status = "selected"
+    elif ats["decision"] == "rejected":
+        status = "rejected"
+    else:
+        status = "pending"
+
     application_document = {
             "first_name": data.get("first_name"),
             "last_name": data.get("last_name"),
@@ -1994,6 +2907,9 @@ def apply():
             "skills": data.get("skills"),
             "job_id": job_id or None,
             "job_role": job_role,
+            "job_description": str((selected_job or {}).get("description", "")).strip(),
+            "assessment_track": assessment_track,
+            "stage_count": stage_count,
             "resume": resume_url,
             "resume_name": resume_name,
             "resume_analysis_text": resume_text,
@@ -2002,7 +2918,8 @@ def apply():
             "ats_decision": ats["decision"],
             "ats_summary": ats["summary"],
             "ats_breakdown": ats["breakdown"],
-            "status": "selected" if ats["decision"] == "shortlisted" else "rejected" if ats["decision"] == "rejected" else "pending",
+            "ats_shortlist_reason": shortlist_reason,
+            "status": status,
             "created_at": utc_now()
         }
 
@@ -2023,7 +2940,7 @@ def apply():
     response_message = "Application submitted and ATS analyzed automatically"
     email_error = None
 
-    if ats["decision"] == "shortlisted":
+    if auto_shortlisted:
         try:
             username, raw_password = create_candidate_account_from_application(application_document)
             sent, email_error = send_email(
@@ -2032,20 +2949,20 @@ def apply():
                 f"""
 Hello {application_document['first_name']},
 
-Congratulations! Your profile has been shortlisted automatically for the {application_document['job_role']} role.
+Congratulations! Your profile has been automatically shortlisted with a resume score of {ats_score}% for the {application_document['job_role']} role.
 
 Username: {username}
 Password: {raw_password}
 
-Login at: http://127.0.0.1:5000
+Login at: https://zyra-avatar.vercel.app/
 
 Regards,
-zyra HR
+HR Harsh
 """
             )
-            response_message = "Application submitted and shortlisted automatically"
+            response_message = "Application submitted and credentials generated automatically"
             if not sent:
-                response_message = "Application shortlisted automatically, but email failed"
+                response_message = "Application shortlisted and credentials generated, but email failed"
         except PyMongoError as e:
             applications.update_one(
                 {"_id": application_document["_id"]},
@@ -2077,9 +2994,13 @@ zyra HR
 
     return jsonify({
         "message": response_message,
+        "application_id": str(application_document["_id"]),
         "ats_score": ats["score"],
         "ats_decision": ats["decision"],
         "ats_summary": ats["summary"],
+        "auto_credential_threshold_percent": RESUME_AUTO_CREDENTIAL_THRESHOLD_PERCENT,
+        "credentials_generated": bool(auto_shortlisted),
+        "credentials_email_sent": bool(auto_shortlisted and not email_error),
         "resume_analysis_warning": resume_text_error,
         "email_error": email_error
     })
@@ -2124,21 +3045,43 @@ def get_applications():
     if not session.get("admin"):
         return jsonify({"error": "Unauthorized"}), 403
 
-    pending = list(applications.find({"status": "pending"}))
-    rejected = list(applications.find({"status": "rejected"}))
-    selected = list(users.find())
+    ensure_demo_candidate()
 
-    for c in pending:
-        c["_id"] = str(c["_id"])
-    for c in rejected:
-        c["_id"] = str(c["_id"])
-    for c in selected:
-        c["_id"] = str(c["_id"])
+    pending = [
+        public_application_document(app_doc)
+        for app_doc in applications.find({"status": "pending"}).sort("created_at", -1)
+    ]
+    selected = [
+        public_candidate_document(user_doc)
+        for user_doc in users.find({
+            "status": {"$ne": "rejected"},
+            "demo_user": {"$ne": True}
+        }).sort("updated_at", -1)
+    ]
+    rejected = [
+        public_application_document(app_doc)
+        for app_doc in applications.find({"status": "rejected"}).sort("updated_at", -1)
+    ] + [
+        public_candidate_document(user_doc)
+        for user_doc in users.find({
+            "status": "rejected",
+            "demo_user": {"$ne": True}
+        }).sort("updated_at", -1)
+    ]
+    reports = [
+        public_candidate_document(user_doc, include_report=True)
+        for user_doc in users.find({
+            "interview_taken": True,
+            "virtual_taken": True,
+            "demo_user": {"$ne": True}
+        }).sort("virtual_completed_at", -1)
+    ]
 
     return jsonify({
         "pending": pending,
         "rejected": rejected,
-        "selected": selected
+        "selected": selected,
+        "reports": reports
     })
 
 # -------------------------------
@@ -2181,10 +3124,10 @@ Congratulations! You are selected for zyra interview.
 Username: {username}
 Password: {raw_password}
 
-Login at: http://127.0.0.1:5000
+Login at: https://zyra-avatar.vercel.app/
 
 Regards,
-zyra HR
+HR Harsh
 """
     )
 
@@ -2256,7 +3199,7 @@ def resend_credentials(id):
     if not user:
         return jsonify({"error": "User not found"}), 404
 
-    reset_candidate_login_usage(object_id, login_limit=1)
+    reset_candidate_login_usage(object_id, login_limit=Config.MAX_LOGIN_ATTEMPTS)
     user = users.find_one({"_id": object_id})
 
     sent, email_error = send_candidate_credentials_email(
@@ -2296,32 +3239,42 @@ def promote_virtual(id):
 
     if not user.get("interview_taken"):
         return jsonify({"error": "Candidate has not completed MCQ interview yet"}), 400
-
-    users.update_one(
-        {"_id": object_id},
-        {"$set": {
+    assessment_track = user.get("assessment_track", resolve_assessment_track(user.get("job_role"), user.get("skills"), user))
+    enable_coding = assessment_track == "technical" and not user.get("coding_taken")
+    update_fields = {
+        "status": "selected",
+        "credential_login_count": 0,
+        "credential_login_limit": max(1, int(Config.MAX_LOGIN_ATTEMPTS)),
+        "bias_review_required": False,
+        "updated_at": utc_now()
+    }
+    if enable_coding:
+        update_fields.update({
+            "coding_round_enabled": True,
+            "virtual_round_enabled": False,
+            "virtual_decision": "pending_coding",
+        })
+    else:
+        update_fields.update({
             "virtual_round_enabled": True,
             "virtual_decision": "promoted",
-            "status": "selected",
-            "credential_login_count": 0,
-            "credential_login_limit": 1,
-            "updated_at": utc_now()
-        }}
-    )
+        })
+
+    users.update_one({"_id": object_id}, {"$set": update_fields})
 
     updated_user = users.find_one({"_id": object_id})
     sent, email_error = send_candidate_credentials_email(
         updated_user,
-        "zyra Virtual Interview Round",
+        "zyra Next Assessment Round",
         [
-            "Congratulations! You are shortlisted for the AI Avatar Virtual Interview Round.",
-            "Please login to your dashboard and complete your 3-5 minute virtual interview.",
+            "Congratulations! You have been manually promoted by the recruiting team.",
+            f"Please login to your dashboard and complete your {'Coding Assessment' if enable_coding else 'AI Avatar Virtual Interview'} next.",
             "Your login credentials are below:"
         ]
     )
 
     if sent:
-        return jsonify({"message": "Candidate promoted to virtual round and email sent"})
+        return jsonify({"message": f"Candidate promoted to {'coding round' if enable_coding else 'virtual round'} and email sent"})
     return jsonify({"message": "Candidate promoted, but email failed", "email_error": email_error}), 200
 
 
@@ -2383,27 +3336,69 @@ def generate_virtual_questions():
     if user.get("virtual_taken"):
         return jsonify({"error": "Virtual interview already completed"}), 400
 
+    excluded_questions = []
+    excluded_questions.extend(get_recent_virtual_question_texts(limit=160))
+    excluded_questions.extend(get_recent_mcq_question_texts(limit=80))
+    excluded_questions.extend([str(q.get("question", "")).strip() for q in user.get("questions_data", []) if isinstance(q, dict)])
+    excluded_questions.extend([str(q or "").strip() for q in user.get("virtual_questions", []) if str(q or "").strip()])
+
     try:
-        questions, last_error = generate_virtual_questions_with_fallback(user, VIRTUAL_QUESTION_COUNT)
+        questions, last_error = generate_virtual_questions_with_fallback(
+            user,
+            VIRTUAL_QUESTION_COUNT,
+            excluded_questions=excluded_questions
+        )
     except Exception as e:
-        questions = generate_deterministic_virtual_questions(user, VIRTUAL_QUESTION_COUNT)
+        questions = enforce_virtual_question_mix(
+            generate_deterministic_virtual_questions(user, VIRTUAL_QUESTION_COUNT * 2),
+            user,
+            VIRTUAL_QUESTION_COUNT,
+            excluded_questions=excluded_questions
+        )
         last_error = {"error": "Virtual question generation exception", "details": str(e), "fallback": "deterministic"}
 
     if not questions:
-        questions = generate_deterministic_virtual_questions(user, VIRTUAL_QUESTION_COUNT)
+        questions = enforce_virtual_question_mix(
+            generate_deterministic_virtual_questions(user, VIRTUAL_QUESTION_COUNT * 2),
+            user,
+            VIRTUAL_QUESTION_COUNT,
+            excluded_questions=excluded_questions
+        )
         last_error = {"error": "Virtual question generation failed", "details": last_error, "fallback": "deterministic"}
 
     if not questions:
         return jsonify({"error": "Failed to generate virtual interview questions", "details": last_error}), 500
 
+    if len(questions) < VIRTUAL_QUESTION_COUNT:
+        questions = enforce_virtual_question_mix(
+            questions + generate_deterministic_virtual_questions(user, VIRTUAL_QUESTION_COUNT * 3),
+            user,
+            VIRTUAL_QUESTION_COUNT,
+            excluded_questions=excluded_questions
+        )
+
+    if len(questions) < VIRTUAL_QUESTION_COUNT:
+        return jsonify({"error": "Failed to prepare enough unique virtual interview questions", "details": last_error}), 500
+
+    started_at = utc_now()
+    expires_at = started_at + timedelta(seconds=VIRTUAL_TEST_DURATION_SECONDS)
+
     users.update_one(
         {"_id": ObjectId(session["candidate_id"])},
-        {"$set": {"virtual_questions": questions, "updated_at": utc_now()}}
+        {"$set": {
+            "virtual_questions": questions,
+            "virtual_started_at": started_at,
+            "virtual_expires_at": expires_at,
+            "virtual_test_duration_seconds": VIRTUAL_TEST_DURATION_SECONDS,
+            "updated_at": utc_now()
+        }}
     )
 
     return jsonify({
         "questions": questions,
         "total_questions": len(questions),
+        "duration_seconds": VIRTUAL_TEST_DURATION_SECONDS,
+        "expires_at": expires_at.isoformat(),
         "generation_info": last_error
     })
 
@@ -2448,6 +3443,8 @@ def virtual_interviewer_response():
     user = users.find_one({"_id": ObjectId(session["candidate_id"])})
     if not user:
         return jsonify({"error": "Candidate not found"}), 404
+    demo_user = is_demo_candidate(user)
+    demo_private_mode = demo_user and not Config.DEMO_PERSIST_TEST_DATA
     if not user.get("virtual_round_enabled"):
         return jsonify({"error": "Virtual round is not enabled"}), 400
     if user.get("virtual_taken"):
@@ -2476,32 +3473,32 @@ Do not use markdown.
     adaptive_next_question = None
     adaptive_difficulty = answer_metrics.get("difficulty", "foundation")
     current_questions = [str(q or "").strip() for q in user.get("virtual_questions", []) if str(q or "").strip()]
+    used_question_history = current_questions[:]
+    used_question_history.extend(get_recent_virtual_question_texts(limit=80))
+    used_question_history.extend(get_recent_mcq_question_texts(limit=60))
+    used_question_history.extend([str(q.get("question", "")).strip() for q in user.get("questions_data", []) if isinstance(q, dict)])
 
-    preferred_provider = "ollama" if Config.USE_LOCAL_VIRTUAL_MODEL else "hf"
+    preferred_provider = "groq"
     response_text = None
     last_error = None
     for _ in range(2):
-        if preferred_provider == "ollama":
-            response_text, err = query_ollama(prompt)
-            if not response_text:
-                fallback_text, fallback_err = query_hf_text(
-                    prompt,
-                    Config.VIRTUAL_HF_MODEL,
-                    system_message="You are a professional HR interviewer.",
-                    max_tokens=200
-                )
+        if preferred_provider == "groq":
+            response_text, err = query_groq_text(
+                prompt,
+                system_message="You are a professional HR interviewer.",
+                model_name=Config.GROQ_TEXT_MODEL,
+                max_tokens=200,
+                temperature=0.4
+            )
+            if not response_text and Config.MCQ_USE_OLLAMA:
+                fallback_text, fallback_err = query_ollama(prompt, model_name=Config.OLLAMA_MODEL)
                 if fallback_text:
                     response_text = fallback_text
                     err = None
                 else:
                     err = {"preferred_error": err, "fallback_error": fallback_err}
-        else:
-            response_text, err = query_hf_text(
-                prompt,
-                Config.VIRTUAL_HF_MODEL,
-                system_message="You are a professional HR interviewer.",
-                max_tokens=200
-            )
+        elif preferred_provider == "ollama":
+            response_text, err = query_ollama(prompt)
         if response_text:
             break
         last_error = err
@@ -2516,7 +3513,7 @@ Do not use markdown.
             answer,
             adaptive_difficulty,
             next_index + 1,
-            used_questions=current_questions
+            used_questions=used_question_history
         )
         if adaptive_next_question:
             current_questions[next_index] = adaptive_next_question
@@ -2553,6 +3550,8 @@ def submit_virtual():
     user = users.find_one({"_id": ObjectId(session["candidate_id"])})
     if not user:
         return jsonify({"error": "Candidate not found"}), 404
+    demo_user = is_demo_candidate(user)
+    demo_private_mode = demo_user and not Config.DEMO_PERSIST_TEST_DATA
     if not user.get("virtual_round_enabled"):
         return jsonify({"error": "Virtual round is not enabled"}), 400
     if user.get("virtual_taken"):
@@ -2560,6 +3559,13 @@ def submit_virtual():
 
     if not isinstance(answers, list):
         return jsonify({"error": "Virtual answers format is invalid"}), 400
+
+    server_duration_seconds = elapsed_seconds_since(user.get("virtual_started_at"))
+    if server_duration_seconds > 0:
+        duration_seconds = server_duration_seconds
+    virtual_time_expired = duration_seconds > int(user.get("virtual_test_duration_seconds", VIRTUAL_TEST_DURATION_SECONDS))
+    if virtual_time_expired:
+        auto_submitted = True
 
     questions = [str(q or "").strip() for q in user.get("virtual_questions", []) if str(q or "").strip()]
     normalized_answers = [str(a or "").strip() for a in answers]
@@ -2643,14 +3649,19 @@ Return ONLY valid JSON:
     if auto_submitted:
         report["performance_summary"] = "Interview was auto-submitted by proctoring policy. " + report["performance_summary"]
 
-    users.update_one(
-        {"_id": ObjectId(session["candidate_id"])},
-        {"$set": {
+    if demo_private_mode:
+        reset_demo_candidate_workflow(user["_id"])
+        sent = False
+        completion_email_error = None
+    else:
+        virtual_update = {
             "virtual_taken": True,
             "virtual_score": score,
             "virtual_answers": normalized_answers,
             "virtual_feedback": feedback,
             "virtual_duration_seconds": max(0, duration_seconds),
+            "virtual_time_expired": bool(virtual_time_expired),
+            "virtual_auto_submitted": bool(auto_submitted),
             "virtual_proctoring_violations": max(0, proctoring_violations),
             "virtual_answered_count": answered_count,
             "virtual_evaluation_source": evaluation_meta.get("source"),
@@ -2661,14 +3672,27 @@ Return ONLY valid JSON:
             "virtual_report_model": report_meta.get("model"),
             "virtual_completed_at": utc_now(),
             "updated_at": utc_now()
-        }}
-    )
+        }
+        report_snapshot = dict(user)
+        report_snapshot.update(virtual_update)
+        virtual_update["candidate_report"] = build_candidate_report(
+            report_snapshot,
+            interview_evaluation=report,
+            proctoring_summary={
+                "violation_count": max(0, proctoring_violations),
+                "critical_flags": ["Violation limit reached"] if max(0, proctoring_violations) >= 3 else []
+            }
+        )
+        users.update_one(
+            {"_id": ObjectId(session["candidate_id"])},
+            {"$set": virtual_update}
+        )
 
-    completion_email_error = None
-    sent, completion_email_error = send_email(
-        user["email"],
-        "zyra Interview Completion Update",
-        f"""
+        completion_email_error = None
+        sent, completion_email_error = send_email(
+            user["email"],
+            "zyra Interview Completion Update",
+            f"""
 Hello {user['first_name']},
 
 Thank you for applying to zyra and completing your AI avatar interview for the {user.get('job_role', 'selected')} role.
@@ -2678,13 +3702,13 @@ We have received your responses successfully. Our team will review the results a
 Regards,
 zyra HR
 """
-    )
+        )
 
     return jsonify({
         "message": "Virtual interview submitted",
-        "score": score,
-        "feedback": feedback,
-        "report": report,
+        "duration_seconds": max(0, duration_seconds),
+        "time_expired": bool(virtual_time_expired),
+        "auto_submitted": bool(auto_submitted),
         "email_error": completion_email_error if not sent else None
     })
 
@@ -2695,6 +3719,7 @@ zyra HR
 @app.route("/api/candidate/login", methods=["POST"])
 def candidate_login():
     data = request.get_json() or {}
+    ensure_demo_candidate()
 
     username = str(data.get("username", "")).strip().lower()
     password = str(data.get("password", "")).strip()
@@ -2708,41 +3733,66 @@ def candidate_login():
 
     if not check_password_hash(user["password"], password):
         return jsonify({"error": "Invalid password"}), 401
+    demo_user = is_demo_candidate(user)
+    demo_needs_reset = (
+        demo_user and (
+            user.get("virtual_taken")
+            or str(user.get("status") or "").strip().lower() != "selected"
+            or (user.get("interview_taken") and not user.get("virtual_round_enabled"))
+        )
+    )
+    if demo_needs_reset:
+        user = reset_demo_candidate_workflow(user["_id"]) or user
+    elif demo_user and not Config.DEMO_PERSIST_TEST_DATA and not user.get("interview_taken"):
+        cleanup_demo_candidate_artifacts(user["_id"])
+    if user.get("virtual_taken"):
+        return jsonify({
+            "error": "All stages were already submitted. Further candidate logins are disabled."
+        }), 403
 
-    login_limit = max(1, int(user.get("credential_login_limit", 2) or 2))
+    login_limit = max(1, int(Config.DEMO_LOGIN_LIMIT if demo_user else (user.get("credential_login_limit", Config.MAX_LOGIN_ATTEMPTS) or Config.MAX_LOGIN_ATTEMPTS)))
     login_count = max(0, int(user.get("credential_login_count", 0) or 0))
-    if login_count >= login_limit:
+    if not demo_user and login_count >= login_limit:
         return jsonify({
             "error": "Login limit exceeded. Please contact customer care."
         }), 403
 
-    login_count += 1
+    login_count = 0 if demo_user else login_count + 1
     users.update_one(
         {"_id": user["_id"]},
         {
             "$set": {
                 "credential_login_limit": login_limit,
                 "credential_login_count": login_count,
+                "workflow_demo_override": bool(Config.DEMO_ALWAYS_PROMOTE) if demo_user else bool(user.get("workflow_demo_override", False)),
+                "demo_user": True if demo_user else bool(user.get("demo_user", False)),
                 "updated_at": utc_now()
             }
         }
     )
 
+    session.clear()
     session["candidate_id"] = str(user["_id"])
 
     return jsonify({
         "message": "Login successful",
+        "job_role": user.get("job_role"),
+        "assessment_track": user.get("assessment_track", resolve_assessment_track(user.get("job_role"), user.get("skills"), user)),
+        "stage_count": int(user.get("stage_count") or resolve_stage_count(user.get("job_role"), user.get("skills"), user)),
         "remaining_login_uses": max(0, login_limit - login_count),
         "interview_taken": user.get("interview_taken", False),
         "score": user.get("score"),
         "mcq_total_questions": user.get("mcq_total_questions", MCQ_QUESTION_COUNT),
+        "coding_round_enabled": user.get("coding_round_enabled", False),
+        "coding_taken": user.get("coding_taken", False),
+        "coding_score": user.get("coding_score"),
+        "coding_feedback": user.get("coding_feedback"),
         "status": user.get("status"),
         "virtual_round_enabled": user.get("virtual_round_enabled", False),
         "virtual_taken": user.get("virtual_taken", False),
         "virtual_decision": user.get("virtual_decision", "pending"),
-        "virtual_score": user.get("virtual_score"),
-        "virtual_feedback": user.get("virtual_feedback"),
-        "virtual_report": user.get("virtual_report"),
+        "bias_review_required": user.get("bias_review_required", False),
+        "workflow_demo_override": user.get("workflow_demo_override", False),
         "virtual_question_count": len(user.get("virtual_questions", [])) if isinstance(user.get("virtual_questions"), list) else VIRTUAL_QUESTION_COUNT
     })
 
@@ -2800,12 +3850,16 @@ def start_test():
         ]
 
     test_id = str(uuid.uuid4())
+    started_at = utc_now()
+    expires_at = started_at + timedelta(seconds=MCQ_TEST_DURATION_SECONDS)
 
     tests.insert_one({
         "test_id": test_id,
         "user_id": session["candidate_id"],
         "variation_seed": session_seed,
-        "created_at": utc_now(),
+        "created_at": started_at,
+        "expires_at": expires_at,
+        "duration_seconds": MCQ_TEST_DURATION_SECONDS,
         "questions": questions_data
     })
 
@@ -2821,7 +3875,9 @@ def start_test():
     return jsonify({
         "test_id": test_id,
         "questions": questions,
-        "total_questions": len(questions)
+        "total_questions": len(questions),
+        "duration_seconds": MCQ_TEST_DURATION_SECONDS,
+        "expires_at": expires_at.isoformat()
     })
 
 
@@ -2837,6 +3893,7 @@ def submit_test():
     data = request.get_json() or {}
     test_id = str(data.get("test_id", "")).strip()
     answers = data.get("answers", [])
+    auto_submitted = bool(data.get("auto_submitted", False))
     if not test_id:
         return jsonify({"error": "test_id is required"}), 400
     if not isinstance(answers, list):
@@ -2849,6 +3906,11 @@ def submit_test():
     score_raw = 0
     total_questions = len(test.get("questions", []))
     proctoring_violations = int(data.get("proctoring_violations", 0) or 0)
+    elapsed_seconds = elapsed_seconds_since(test.get("created_at"))
+    test_duration_seconds = int(test.get("duration_seconds", MCQ_TEST_DURATION_SECONDS) or MCQ_TEST_DURATION_SECONDS)
+    mcq_time_expired = elapsed_seconds > test_duration_seconds
+    if mcq_time_expired:
+        auto_submitted = True
 
     for q in test["questions"]:
         for ans in answers:
@@ -2857,48 +3919,76 @@ def submit_test():
 
     score = round((score_raw / total_questions) * 10, 1) if total_questions else 0.0
     score_percent = round((score_raw / total_questions) * 100, 1) if total_questions else 0.0
-    promoted_to_virtual = score_percent >= MCQ_PROMOTION_THRESHOLD_PERCENT
-
     user = users.find_one({"_id": ObjectId(session["candidate_id"])})
     if not user:
         return jsonify({"error": "Candidate not found"}), 404
-
+    demo_user = is_demo_candidate(user)
+    demo_private_mode = demo_user and not Config.DEMO_PERSIST_TEST_DATA
+    auto_qualified = score_percent >= MCQ_PROMOTION_THRESHOLD_PERCENT or (demo_user and Config.DEMO_ALWAYS_PROMOTE) or bool(user.get("workflow_demo_override"))
     mcq_update = {
         "interview_taken": True,
         "score": score,
         "mcq_score_percent": score_percent,
         "mcq_raw_score": score_raw,
         "mcq_total_questions": total_questions,
+        "mcq_duration_seconds": elapsed_seconds,
+        "mcq_time_expired": bool(mcq_time_expired),
+        "mcq_auto_submitted": bool(auto_submitted),
         "mcq_proctoring_violations": max(0, proctoring_violations),
-        "candidate_answers": answers,
-        "questions_data": test["questions"],
+        "candidate_answers": [] if demo_private_mode else answers,
+        "questions_data": [] if demo_private_mode else test["questions"],
         "mcq_completed_at": utc_now(),
-        "virtual_round_enabled": promoted_to_virtual,
+        "coding_round_enabled": False,
+        "coding_taken": False,
+        "coding_score": None,
+        "coding_feedback": None,
+        "coding_questions": [],
+        "coding_answers": [],
+        "coding_duration_seconds": None,
+        "virtual_round_enabled": bool(auto_qualified),
         "virtual_taken": False,
         "virtual_score": None,
         "virtual_questions": [],
         "virtual_answers": [],
         "virtual_feedback": None,
         "virtual_duration_seconds": None,
-        "virtual_decision": "promoted" if promoted_to_virtual else "pending",
+        "virtual_decision": "promoted" if auto_qualified else "pending",
+        "bias_review_required": not auto_qualified,
         "updated_at": utc_now()
     }
-    if promoted_to_virtual:
+    if auto_qualified:
         mcq_update["credential_login_count"] = 0
-        mcq_update["credential_login_limit"] = 1
+        mcq_update["credential_login_limit"] = max(1, int(Config.MAX_LOGIN_ATTEMPTS))
+    mcq_snapshot = dict(user)
+    mcq_snapshot.update(mcq_update)
+    mcq_update["candidate_report"] = build_candidate_report(mcq_snapshot)
     users.update_one({"_id": ObjectId(session["candidate_id"])}, {"$set": mcq_update})
+    tests.update_one(
+        {"test_id": test_id},
+        {"$set": {
+            "submitted_at": utc_now(),
+            "elapsed_seconds": elapsed_seconds,
+            "time_expired": bool(mcq_time_expired),
+            "auto_submitted": bool(auto_submitted),
+            "score_percent": score_percent,
+            "raw_score": score_raw
+        }}
+    )
+    if demo_private_mode:
+        tests.delete_many({"user_id": str(user["_id"])})
 
     email_error = None
-    if promoted_to_virtual:
+    if auto_qualified and not demo_user:
+        next_round_label = "AI Avatar Virtual Interview"
         sent, email_error = send_email(
             user["email"],
-            "zyra Virtual Interview Round",
+            f"zyra {next_round_label}",
             f"""
 Hello {user['first_name']},
 
 Congratulations! You scored {score_percent}% in the MCQ round, which meets the {MCQ_PROMOTION_THRESHOLD_PERCENT:.0f}% promotion criteria.
 
-Your profile has been promoted automatically to the next round. Please log in and complete your AI Avatar Virtual Interview.
+Your profile has been promoted automatically to the next round. Please log in and complete your {next_round_label}.
 
 Regards,
 zyra HR
@@ -2912,9 +4002,184 @@ zyra HR
         "score_percent": score_percent,
         "raw_score": score_raw,
         "total_questions": total_questions,
-        "promoted_to_virtual": promoted_to_virtual,
+        "promoted_to_virtual": bool(auto_qualified),
+        "promoted_to_coding": False,
+        "next_stage": "virtual" if auto_qualified else "bias_review",
         "promotion_threshold_percent": MCQ_PROMOTION_THRESHOLD_PERCENT,
+        "duration_seconds": elapsed_seconds,
+        "time_expired": bool(mcq_time_expired),
+        "auto_submitted": bool(auto_submitted),
         "email_error": email_error
+    })
+
+
+@app.route("/api/coding/start", methods=["POST"])
+def start_coding_round():
+    if not session.get("candidate_id"):
+        return jsonify({"error": "Unauthorized"}), 403
+
+    user = users.find_one({"_id": ObjectId(session["candidate_id"])})
+    if not user:
+        return jsonify({"error": "Candidate not found"}), 404
+    if user.get("assessment_track") != "technical":
+        return jsonify({"error": "Coding round is only enabled for technical roles"}), 400
+    if not user.get("interview_taken"):
+        return jsonify({"error": "Complete the MCQ round first"}), 400
+    if user.get("coding_taken"):
+        return jsonify({"error": "Coding round already submitted"}), 400
+    if not user.get("coding_round_enabled"):
+        return jsonify({"error": "Coding round is not enabled yet"}), 400
+
+    existing = coding_tests.find_one({"user_id": session["candidate_id"], "submitted": False})
+    if existing:
+        return jsonify({
+            "test_id": existing["test_id"],
+            "questions": existing.get("questions", []),
+            "total_questions": len(existing.get("questions", []))
+        })
+
+    question_count = 2
+    questions, _ = generate_coding_questions_with_fallback(user, question_count)
+    if not questions:
+        questions = generate_deterministic_coding_questions(user, question_count)
+    questions = normalize_coding_questions(questions)
+
+    test_id = str(uuid.uuid4())
+    coding_tests.insert_one({
+        "test_id": test_id,
+        "user_id": session["candidate_id"],
+        "created_at": utc_now(),
+        "submitted": False,
+        "questions": questions,
+    })
+
+    users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"coding_questions": questions, "updated_at": utc_now()}}
+    )
+
+    return jsonify({
+        "test_id": test_id,
+        "questions": questions,
+        "total_questions": len(questions)
+    })
+
+
+@app.route("/api/coding/submit", methods=["POST"])
+def submit_coding_round():
+    if not session.get("candidate_id"):
+        return jsonify({"error": "Unauthorized"}), 403
+
+    data = request.get_json() or {}
+    test_id = str(data.get("test_id", "")).strip()
+    answers = data.get("answers", [])
+    duration_seconds = int(data.get("duration_seconds", 0) or 0)
+    proctoring_violations = int(data.get("proctoring_violations", 0) or 0)
+
+    if not test_id:
+        return jsonify({"error": "test_id is required"}), 400
+    if not isinstance(answers, list):
+        return jsonify({"error": "answers must be a list"}), 400
+
+    user = users.find_one({"_id": ObjectId(session["candidate_id"])})
+    if not user:
+        return jsonify({"error": "Candidate not found"}), 404
+
+    coding_test = coding_tests.find_one({"test_id": test_id, "user_id": session["candidate_id"]})
+    if not coding_test:
+        return jsonify({"error": "Coding session not found"}), 404
+    if coding_test.get("submitted"):
+        return jsonify({"error": "Coding round already submitted"}), 400
+
+    evaluation, meta = evaluate_coding_submission_with_fallback(user, coding_test.get("questions", []), answers)
+    score = max(0.0, min(10.0, round(float(evaluation.get("score", 0) or 0), 1)))
+    feedback = str(evaluation.get("feedback", "")).strip() or "Coding round submitted successfully."
+
+    coding_update = {
+        "coding_taken": True,
+        "coding_round_enabled": False,
+        "coding_score": score,
+        "coding_feedback": feedback,
+        "coding_answers": answers,
+        "coding_duration_seconds": max(0, duration_seconds),
+        "coding_proctoring_violations": max(0, proctoring_violations),
+        "virtual_round_enabled": True,
+        "virtual_decision": "promoted",
+        "updated_at": utc_now(),
+    }
+    coding_snapshot = dict(user)
+    coding_snapshot.update(coding_update)
+    coding_update["candidate_report"] = build_candidate_report(coding_snapshot)
+
+    users.update_one({"_id": user["_id"]}, {"$set": coding_update})
+    coding_tests.update_one(
+        {"_id": coding_test["_id"]},
+        {"$set": {"submitted": True, "answers": answers, "score": score, "feedback": feedback, "updated_at": utc_now()}}
+    )
+
+    return jsonify({
+        "score": score,
+        "feedback": feedback,
+        "strengths": evaluation.get("strengths", []),
+        "improvements": evaluation.get("improvements", []),
+        "next_stage": "virtual",
+        "provider": meta.get("source"),
+    })
+
+
+@app.route("/api/proctoring/upload", methods=["POST"])
+def upload_proctoring_recording():
+    if not session.get("candidate_id"):
+        return jsonify({"error": "Unauthorized"}), 403
+
+    user = users.find_one({"_id": ObjectId(session["candidate_id"])})
+    if is_demo_candidate(user) and not Config.DEMO_PERSIST_TEST_DATA:
+        return jsonify({
+            "message": "Demo proctoring recording skipped",
+            "storage_provider": "demo_skip",
+            "video_url": None,
+            "mongo_file_id": None
+        })
+
+    video = request.files.get("video")
+    if not video or not video.filename:
+        return jsonify({"error": "Proctoring video is required"}), 400
+
+    assessment_type = str(request.form.get("assessment_type", "assessment")).strip().lower()
+    violations = int(request.form.get("violations", 0) or 0)
+    multiple_user_events = int(request.form.get("multiple_user_events", 0) or 0)
+    metadata = request.form.get("metadata", "{}")
+
+    video_url, upload_error = upload_proctoring_video_to_cloudinary(video, assessment_type)
+    storage_provider = "cloudinary"
+    mongo_file_id = None
+    if not video_url:
+        mongo_file_id, mongo_error = store_proctoring_video_in_mongodb(video, assessment_type)
+        storage_provider = "mongodb"
+        if not mongo_file_id:
+            return jsonify({
+                "error": "Proctoring upload failed",
+                "details": upload_error,
+                "mongodb_details": mongo_error
+            }), 500
+
+    document = {
+        "user_id": session["candidate_id"],
+        "assessment_type": assessment_type,
+        "storage_provider": storage_provider,
+        "video_url": video_url,
+        "mongo_file_id": mongo_file_id,
+        "violations": max(0, violations),
+        "multiple_user_events": max(0, multiple_user_events),
+        "metadata": metadata,
+        "created_at": utc_now()
+    }
+    db.proctoring_recordings.insert_one(document)
+    return jsonify({
+        "message": "Proctoring recording uploaded",
+        "storage_provider": storage_provider,
+        "video_url": video_url,
+        "mongo_file_id": mongo_file_id
     })
 
 @app.route("/api/logout")
@@ -2941,6 +4206,8 @@ def session_status():
         if user:
             candidate_state = {
                 "interview_taken": bool(user.get("interview_taken", False)),
+                "coding_round_enabled": bool(user.get("coding_round_enabled", False)),
+                "coding_taken": bool(user.get("coding_taken", False)),
                 "virtual_round_enabled": bool(user.get("virtual_round_enabled", False)),
                 "virtual_taken": bool(user.get("virtual_taken", False))
             }
@@ -2950,6 +4217,19 @@ def session_status():
         "role": role,
         "candidate_state": candidate_state
     })
+
+# ================================
+# REGISTER INTERVIEW V2 ROUTES
+# ================================
+try:
+    register_interview_routes(app, db)
+except Exception as e:
+    print("⚠ Warning: Interview V2 routes registration failed:", str(e))
+
+try:
+    ensure_demo_candidate()
+except Exception as e:
+    print("Warning: demo candidate seed failed:", str(e))
 
 if __name__ == "__main__":
     app.run(debug=os.getenv("FLASK_DEBUG", "false").lower() == "true")

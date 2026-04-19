@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>User Dashboard – Zyra</title>
+  <link rel="stylesheet" href="../static/css/global.css" />
+  <link rel="stylesheet" href="../static/css/dashboard.css" />
+</head>
+<body>
+  <div class="bg-mesh"></div>
+
+  <!-- Topbar -->
+  <div class="topbar">
+    <div class="topbar-title">Dashboard</div>
+    <div class="topbar-right">
+      <div class="topbar-avatar">IS</div>
+      <button class="btn btn-outline" data-candidate-logout type="button" style="padding:8px 18px;font-size:13px;">Logout</button>
+    </div>
+  </div>
+
+  <div class="user-dashboard">
+    <div class="user-dash-content animate-fade-up">
+      <div class="user-dash-header">
+        <div class="user-dash-logo">ZYRA</div>
+        <button class="btn btn-outline" data-candidate-logout type="button" style="padding:10px 24px;border-radius:50px;">Logout</button>
+      </div>
+
+      <div class="module-grid">
+        <!-- AI MCQ Test -->
+        <div class="module-card animate-fade-up animate-delay-1" id="mcq-module-card">
+          <h3 class="module-title">AI – MCQ Aptitude Test</h3>
+          <p class="module-desc">
+            Take an AI-powered multiple choice aptitude test. Questions are dynamically generated and proctored in real-time.
+          </p>
+          <a href="mcq_test.html" class="module-btn" id="mcq-module-btn">MCQ Test</a>
+        </div>
+
+        <!-- AI Avatar Interview -->
+        <div class="module-card disabled animate-fade-up animate-delay-2" id="avatar-module-card">
+          <h3 class="module-title">AI – Avatar Interview</h3>
+          <p class="module-desc">
+            Participate in a live AI avatar-driven interview with sign language support and voice transcription.
+          </p>
+          <a href="avatar_interview.html" class="module-btn coming-soon" id="avatar-module-btn" aria-disabled="true">Locked Until MCQ Pass</a>
+        </div>
+
+        <!-- Coding Assessment -->
+        <div class="module-card disabled animate-fade-up animate-delay-3">
+          <h3 class="module-title">Coding Assessment</h3>
+          <p class="module-desc">
+            Solve coding challenges in a sandboxed environment with AI evaluation and instant feedback.
+          </p>
+          <button class="module-btn coming-soon">Coming Soon</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="../static/js/cursor.js"></script>
+  <script src="../static/js/main.js"></script>
+  <script src="../static/js/user_dashboard.js"></script>
+</body>
+</html>

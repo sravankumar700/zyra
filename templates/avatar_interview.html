@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Avatar Interview - Zyra</title>
+  <link rel="stylesheet" href="../static/css/global.css" />
+  <link rel="stylesheet" href="../static/css/test.css" />
+</head>
+<body>
+  <div class="bg-mesh"></div>
+
+  <div class="avatar-page-shell">
+    <div class="avatar-interview-header">
+      <button class="avatar-back-btn" type="button" onclick="window.location.href='user_dashboard.html'">Back</button>
+      <div class="avatar-header-center">
+        <div class="topbar-title">AI Avatar Dashboard</div>
+        <span id="q-progress" class="avatar-progress">Ready</span>
+      </div>
+      <span class="test-timer">Timer <span id="avatar-timer">60:00</span></span>
+    </div>
+
+    <div class="proctor-pause-banner">
+      Multiple users detected in the camera feed. The interview is paused on screen, but backend time tracking continues.
+    </div>
+
+    <div class="avatar-dashboard">
+      <div class="avatar-grid">
+        <div class="avatar-left">
+          <div class="avatar-video-block">
+            <div class="avatar-video-title">AI Avatar Video</div>
+            <video id="avatar-video" class="avatar-interview-video" src="/media/interview-avatar" preload="auto" playsinline muted></video>
+            <button class="start-interview-btn" id="start-interview-btn" type="button">Start Interview</button>
+          </div>
+
+          <div class="ai-question-block">
+            <div class="ai-q-title">AI Generated Question</div>
+            <p class="ai-q-text" id="ai-question-text">Click Start Interview when you are ready.</p>
+            <button class="repeat-btn" id="repeat-btn">
+              <span>Repeat</span> Question
+            </button>
+          </div>
+        </div>
+
+        <div class="avatar-right">
+          <div class="mic-controls">
+            <button class="mic-btn mic-start" id="start-mic-top">Start MIC</button>
+            <button class="mic-btn mic-stop" id="stop-mic-top">Stop MIC</button>
+          </div>
+
+          <div class="user-video-feed">
+            <video id="proctor-video" class="proctor-video" autoplay muted playsinline></video>
+            <div class="avatar-proctor-copy">
+              <span id="proctor-status">Camera required</span>
+              <span id="proctor-face-status">Face scan starting</span>
+              <span>Warnings: <b id="proctor-violations">0</b>/3</span>
+            </div>
+          </div>
+
+          <div class="submit-controls">
+            <button class="mic-btn" id="next-question-btn" type="button">Next</button>
+            <button class="submit-main-btn" id="submit-answer-btn">Submit</button>
+          </div>
+
+          <div class="speech-block">
+            <div class="speech-title">
+              <span>User Response</span>
+              <span id="speech-mode-label">Text</span>
+            </div>
+            <textarea class="speech-textarea" id="response-text" placeholder="Your spoken response will appear here as text. You can also type or edit it."></textarea>
+            <p class="speech-hint" id="speech-placeholder">Start the microphone to capture your answer as text.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="../static/js/cursor.js"></script>
+  <script src="../static/js/main.js"></script>
+  <script src="../static/js/proctoring.js"></script>
+  <script src="../static/js/avatar.js"></script>
+</body>
+</html>

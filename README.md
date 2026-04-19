@@ -307,5 +307,3 @@ If you change the HR dashboard UI, candidate application flow, or job schema aga
 
 
 
--------------------------------------------------------------------
------------------------------------THE END-------------------------S

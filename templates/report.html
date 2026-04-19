@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Report Generator – Zyra</title>
+  <link rel="stylesheet" href="../static/css/global.css" />
+  <link rel="stylesheet" href="../static/css/test.css" />
+</head>
+<body>
+  <div class="bg-mesh"></div>
+
+  <!-- Report Nav -->
+  <nav class="report-nav">
+    <div class="report-nav-links">
+      <a href="user_dashboard.html" class="report-nav-link">Project</a>
+      <a href="#" class="report-nav-link active">Reports</a>
+      <a href="#" class="report-nav-link">Help</a>
+      <a href="user_login.html" class="report-nav-link">Login</a>
+    </div>
+    <div style="width:36px;height:36px;background:var(--border);border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:18px;">👤</div>
+  </nav>
+
+  <div class="report-content">
+
+    <!-- Title -->
+    <h1 class="report-page-title">
+      Report Generator Style ✏️
+    </h1>
+
+    <!-- User Details -->
+    <div class="report-section animate-fade-up">
+      <h2 class="report-section-title">User Details</h2>
+
+      <div class="report-field">
+        <span class="report-field-label">Username:</span>
+        <div class="report-field-value">XYZ@sun</div>
+      </div>
+
+      <div class="report-field">
+        <span class="report-field-label">Password:</span>
+        <div class="report-field-value" style="display:flex;align-items:center;justify-content:space-between;">
+          <span style="letter-spacing:3px;color:var(--text-muted);">•••••••••••••</span>
+          <span style="cursor:pointer;color:var(--text-muted);font-size:16px;">👁</span>
+        </div>
+      </div>
+
+      <div class="report-field">
+        <span class="report-field-label">Credentials Sent</span>
+        <div class="report-field-status">
+          <span>[Status: Sent]</span>
+          <span class="status-check">✅</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Score Details -->
+    <div class="report-section animate-fade-up animate-delay-1">
+      <h2 class="report-section-title">Score Details</h2>
+
+      <div class="score-grid">
+        <!-- MCQ Score -->
+        <div class="score-card">
+          <div class="score-circle-wrap">
+            <svg class="score-circle-svg" viewBox="0 0 90 90">
+              <defs>
+                <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:#2563a8"/>
+                  <stop offset="100%" style="stop-color:#1a2f4e"/>
+                </linearGradient>
+              </defs>
+              <circle class="score-circle-bg" cx="45" cy="45" r="38"/>
+              <circle class="score-circle-fill" cx="45" cy="45" r="38"
+                stroke-dasharray="238.76"
+                stroke-dashoffset="71.6"
+                id="mcq-circle"/>
+            </svg>
+            <div class="score-circle-text">
+              <div class="score-main-val">MCQ<br/>Score:<br/>[70]%</div>
+            </div>
+          </div>
+          <div class="score-card-title">MCQ Score</div>
+        </div>
+
+        <!-- AI Avatar Score -->
+        <div class="score-card">
+          <div class="score-placeholder"></div>
+          <div class="score-card-title">AI Avatar Score [5]/10</div>
+        </div>
+
+        <!-- Video Analysis -->
+        <div class="score-card">
+          <div class="video-score-btn" id="video-score-btn">
+            ▶
+            <div class="video-tooltip">Analysis Through Score Video</div>
+          </div>
+          <div class="score-card-title">Video Analysis [8]/10<br/>Score Through Score</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scores Description -->
+    <div class="report-section animate-fade-up animate-delay-2">
+      <h2 class="report-section-title">Scores Description</h2>
+      <p class="report-section-desc">
+        The candidate demonstrated strong analytical and reasoning skills across all assessment modules.
+        The MCQ score of 70% reflects solid domain knowledge with opportunities for improvement in advanced topics.
+        The AI avatar interview score indicates good communication skills and confident body language.
+        Video analysis reveals attentive engagement and positive non-verbal cues throughout the process.
+      </p>
+    </div>
+
+    <!-- Final Recommendation -->
+    <div class="report-section animate-fade-up animate-delay-3">
+      <h2 class="report-section-title">Final Recommendation</h2>
+      <p class="report-section-desc">
+        Based on comprehensive assessment results, we recommend advancing this candidate to the next stage:
+      </p>
+      <ul class="report-rec-list">
+        <li>Strong aptitude score places candidate in the top 35% of applicants</li>
+        <li>Communication and presentation skills show readiness for team collaboration</li>
+        <li>Technical responses demonstrated problem-solving ability and domain awareness</li>
+        <li>Recommend a follow-up technical interview to assess depth of knowledge</li>
+      </ul>
+    </div>
+
+  </div>
+
+  <script src="../static/js/cursor.js"></script>
+  <script src="../static/js/main.js"></script>
+  <script>
+    // Animate score circle on load
+    window.addEventListener('load', () => {
+      const circle = document.getElementById('mcq-circle');
+      if (circle) {
+        circle.style.strokeDashoffset = '238.76';
+        setTimeout(() => {
+          circle.style.transition = 'stroke-dashoffset 1.5s cubic-bezier(0.4,0,0.2,1)';
+          circle.style.strokeDashoffset = '71.6'; // 70%
+        }, 400);
+      }
+    });
+  </script>
+</body>
+</html>

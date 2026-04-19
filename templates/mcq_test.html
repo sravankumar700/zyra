@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MCQ Test - Zyra</title>
+  <link rel="stylesheet" href="../static/css/global.css" />
+  <link rel="stylesheet" href="../static/css/test.css" />
+</head>
+<body>
+  <div class="bg-mesh"></div>
+
+  <div class="avatar-page-shell mcq-page-shell">
+    <div class="avatar-interview-header">
+      <button class="avatar-back-btn" type="button" onclick="window.location.href='user_dashboard.html'">Back</button>
+      <div class="avatar-header-center">
+        <div class="topbar-title">MCQ Test Dashboard</div>
+        <span id="mcq-progress" class="avatar-progress">Ready</span>
+      </div>
+      <span class="test-timer">Timer <span id="timer">60:00</span></span>
+    </div>
+
+    <div class="proctor-pause-banner">
+      Multiple users detected in the camera feed. The test is paused on screen, but the timer is still running.
+    </div>
+
+    <div class="mcq-container">
+      <div class="mcq-card">
+        <div class="q-nav" id="q-nav"></div>
+
+        <div class="mcq-inner">
+          <div class="mcq-main">
+            <div class="question-block">
+              <div class="q-label">
+                <span>Q.</span>
+                <span id="q-num-label" style="color:var(--text-muted);font-weight:500;font-size:12px;">1/20</span>
+              </div>
+              <p class="q-text" id="q-text">Loading question...</p>
+              <div class="options-grid" id="options-container"></div>
+            </div>
+
+            <div class="mcq-actions">
+              <button class="btn btn-primary" id="submit-test-btn">Submit Test</button>
+              <button class="btn btn-secondary" id="review-later-btn">Review Later</button>
+            </div>
+          </div>
+
+          <aside class="mcq-video-panel">
+            <div class="video-feed">
+              <span class="live-badge">LIVE</span>
+              <video id="proctor-video" class="proctor-video" autoplay muted playsinline></video>
+              <span id="proctor-status">Camera required</span>
+              <span id="proctor-face-status">Face scan starting</span>
+              <span>Warnings: <b id="proctor-violations">0</b>/3</span>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="../static/js/cursor.js"></script>
+  <script src="../static/js/main.js"></script>
+  <script src="../static/js/proctoring.js"></script>
+  <script src="../static/js/mcq.js"></script>
+</body>
+</html>

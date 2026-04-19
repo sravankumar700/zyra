@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>User  Login – Zyra</title>
+  <link rel="stylesheet" href="../static/css/global.css" />
+  <link rel="stylesheet" href="../static/css/auth.css" />
+  <style>
+    .user-auth-page {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(145deg, #e6eff8 0%, #d4e5f5 50%, #ddeaf8 100%);
+      padding: 40px 20px; position: relative; overflow: hidden;
+    }
+
+    /* Circuit board lines */
+    .circuit-lines {
+      position: absolute; inset: 0; overflow: hidden; z-index: 0;
+    }
+    .circuit-lines svg { width: 100%; height: 100%; opacity: 0.22; }
+
+    /* Corner chip badges */
+    .chip-badge {
+      position: absolute; z-index: 1;
+      display: flex; align-items: center; justify-content: center;
+      animation: float 3.5s ease-in-out infinite;
+    }
+    .chip-badge:nth-child(1) { top: 20%; left: 7%; animation-delay: 0s; }
+    .chip-badge:nth-child(2) { bottom: 22%; left: 7%; animation-delay: 0.9s; }
+    .chip-badge:nth-child(3) { top: 20%; right: 7%; animation-delay: 0.4s; }
+    .chip-badge:nth-child(4) { bottom: 22%; right: 7%; animation-delay: 1.3s; }
+
+    /* Chip SVG style */
+    .chip-svg { width: 90px; height: 90px; }
+
+    /* Login card */
+    .user-login-card {
+      position: relative; z-index: 2;
+      background: linear-gradient(145deg, rgba(210,228,248,0.75) 0%, rgba(230,242,255,0.85) 100%);
+      backdrop-filter: blur(18px);
+      border: 1.5px solid rgba(200,220,240,0.75);
+      border-radius: var(--radius-xl);
+      padding: 48px 56px;
+      width: 100%; max-width: 520px;
+      box-shadow: 0 24px 80px rgba(26,47,78,0.15), inset 0 1px 0 rgba(255,255,255,0.5);
+      animation: fadeUp 0.7s ease both;
+    }
+
+    .user-login-title {
+      font-family: var(--font-head);
+      font-size: 18px; font-weight: 700;
+      color: var(--navy-dark); letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-bottom: 28px;
+      text-align: center;
+    }
+
+    .user-auth-field { margin-bottom: 18px; }
+    .user-auth-label {
+      display: block; font-size: 14px; font-weight: 500;
+      color: var(--text-dark); margin-bottom: 7px;
+      font-family: var(--font-head);
+    }
+    .user-auth-input {
+      background: rgba(240,248,255,0.8);
+      border: 1.5px solid rgba(190,215,240,0.9);
+      border-radius: 8px; padding: 13px 16px;
+      font-size: 15px; width: 100%;
+      transition: var(--transition);
+    }
+    .user-auth-input:focus {
+      background: white; border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37,99,168,0.12); outline: none;
+    }
+
+    .user-login-btn {
+      width: 100%; padding: 14px;
+      background: linear-gradient(135deg, #3a7cc8 0%, var(--navy-dark) 100%);
+      color: white; border: none; border-radius: 8px;
+      font-family: var(--font-head); font-size: 15px; font-weight: 700;
+      letter-spacing: 2px; margin-top: 24px;
+      box-shadow: 0 6px 20px rgba(37,99,168,0.3);
+      transition: var(--transition);
+    }
+    .user-login-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(37,99,168,0.4); }
+
+    .auth-page-footer {
+      position: absolute; bottom: 16px; left: 0; right: 0;
+      text-align: center; font-size: 12px; color: var(--text-muted); z-index: 2;
+    }
+    .auth-page-footer a { color: var(--text-muted); text-decoration: none; }
+    .auth-page-footer a:hover { color: var(--navy); }
+
+    /* Dashboard Login page label */
+    .page-top-label {
+      position: absolute; top: 36px; left: 40px; z-index: 3;
+    }
+    .page-top-label h2 {
+      font-family: var(--font-head);
+      font-size: 28px; font-weight: 800;
+      color: var(--navy-dark);
+      letter-spacing: 2px; text-transform: uppercase;
+      border-bottom: 3px solid var(--navy-dark); padding-bottom: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="user-auth-page">
+
+    <!-- Page top label -->
+    <div class="page-top-label">
+    </div>
+
+    <!-- Circuit lines background -->
+    <div class="circuit-lines">
+      <svg viewBox="0 0 1400 800" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+        <!-- Left side circuits -->
+        <path d="M 0 300 H 200 V 200 H 380" fill="none" stroke="#2563a8" stroke-width="1.5"/>
+        <path d="M 0 400 H 150 V 500 H 300 V 400 H 380" fill="none" stroke="#2563a8" stroke-width="1.5"/>
+        <path d="M 0 500 H 100 V 350 H 380" fill="none" stroke="#3b7fd4" stroke-width="1"/>
+        <!-- Right side circuits -->
+        <path d="M 1400 300 H 1200 V 200 H 1020" fill="none" stroke="#2563a8" stroke-width="1.5"/>
+        <path d="M 1400 400 H 1250 V 500 H 1100 V 400 H 1020" fill="none" stroke="#2563a8" stroke-width="1.5"/>
+        <path d="M 1400 500 H 1300 V 350 H 1020" fill="none" stroke="#3b7fd4" stroke-width="1"/>
+        <!-- Circuit nodes -->
+        <circle cx="200" cy="300" r="4" fill="#2563a8"/>
+        <circle cx="150" cy="400" r="4" fill="#2563a8"/>
+        <circle cx="1200" cy="300" r="4" fill="#2563a8"/>
+        <circle cx="1250" cy="400" r="4" fill="#2563a8"/>
+      </svg>
+    </div>
+
+    <!-- Corner chip badges -->
+    <!-- AI chip top-left -->
+    <div class="chip-badge">
+      <svg class="chip-svg" viewBox="0 0 90 90" xmlns="http://www.w3.org/2000/svg">
+        <rect x="20" y="20" width="50" height="50" rx="8" fill="none" stroke="#1a2f4e" stroke-width="2"/>
+        <rect x="28" y="28" width="34" height="34" rx="4" fill="rgba(37,99,168,0.08)" stroke="#2563a8" stroke-width="1.5"/>
+        <text x="45" y="50" text-anchor="middle" font-family="Sora,sans-serif" font-size="12" font-weight="800" fill="#1a2f4e">AI</text>
+        <!-- Pins -->
+        <line x1="20" y1="35" x2="10" y2="35" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="20" y1="45" x2="10" y2="45" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="20" y1="55" x2="10" y2="55" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="70" y1="35" x2="80" y2="35" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="70" y1="45" x2="80" y2="45" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="70" y1="55" x2="80" y2="55" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="35" y1="20" x2="35" y2="10" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="45" y1="20" x2="45" y2="10" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="55" y1="20" x2="55" y2="10" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="35" y1="70" x2="35" y2="80" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="45" y1="70" x2="45" y2="80" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="55" y1="70" x2="55" y2="80" stroke="#1a2f4e" stroke-width="1.5"/>
+      </svg>
+    </div>
+
+    <!-- MI chip bottom-left -->
+    <div class="chip-badge">
+      <svg class="chip-svg" viewBox="0 0 90 90" xmlns="http://www.w3.org/2000/svg">
+        <rect x="20" y="20" width="50" height="50" rx="8" fill="none" stroke="#1a2f4e" stroke-width="2"/>
+        <rect x="28" y="28" width="34" height="34" rx="4" fill="rgba(37,99,168,0.08)" stroke="#2563a8" stroke-width="1.5"/>
+        <text x="45" y="50" text-anchor="middle" font-family="Sora,sans-serif" font-size="11" font-weight="800" fill="#1a2f4e">MI</text>
+        <line x1="20" y1="35" x2="10" y2="35" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="20" y1="45" x2="10" y2="45" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="20" y1="55" x2="10" y2="55" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="70" y1="35" x2="80" y2="35" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="70" y1="45" x2="80" y2="45" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="70" y1="55" x2="80" y2="55" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="35" y1="20" x2="35" y2="10" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="45" y1="20" x2="45" y2="10" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="55" y1="20" x2="55" y2="10" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="35" y1="70" x2="35" y2="80" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="45" y1="70" x2="45" y2="80" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="55" y1="70" x2="55" y2="80" stroke="#1a2f4e" stroke-width="1.5"/>
+      </svg>
+    </div>
+
+    <!-- AI chip top-right -->
+    <div class="chip-badge">
+      <svg class="chip-svg" viewBox="0 0 90 90" xmlns="http://www.w3.org/2000/svg">
+        <rect x="20" y="20" width="50" height="50" rx="8" fill="none" stroke="#1a2f4e" stroke-width="2"/>
+        <rect x="28" y="28" width="34" height="34" rx="4" fill="rgba(37,99,168,0.08)" stroke="#2563a8" stroke-width="1.5"/>
+        <text x="45" y="50" text-anchor="middle" font-family="Sora,sans-serif" font-size="12" font-weight="800" fill="#1a2f4e">AI</text>
+        <line x1="20" y1="35" x2="10" y2="35" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="20" y1="45" x2="10" y2="45" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="20" y1="55" x2="10" y2="55" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="70" y1="35" x2="80" y2="35" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="70" y1="45" x2="80" y2="45" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="70" y1="55" x2="80" y2="55" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="35" y1="20" x2="35" y2="10" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="45" y1="20" x2="45" y2="10" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="55" y1="20" x2="55" y2="10" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="35" y1="70" x2="35" y2="80" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="45" y1="70" x2="45" y2="80" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="55" y1="70" x2="55" y2="80" stroke="#1a2f4e" stroke-width="1.5"/>
+      </svg>
+    </div>
+
+    <!-- MI chip bottom-right -->
+    <div class="chip-badge">
+      <svg class="chip-svg" viewBox="0 0 90 90" xmlns="http://www.w3.org/2000/svg">
+        <rect x="20" y="20" width="50" height="50" rx="8" fill="none" stroke="#1a2f4e" stroke-width="2"/>
+        <rect x="28" y="28" width="34" height="34" rx="4" fill="rgba(37,99,168,0.08)" stroke="#2563a8" stroke-width="1.5"/>
+        <text x="45" y="50" text-anchor="middle" font-family="Sora,sans-serif" font-size="11" font-weight="800" fill="#1a2f4e">MI</text>
+        <line x1="20" y1="35" x2="10" y2="35" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="20" y1="45" x2="10" y2="45" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="20" y1="55" x2="10" y2="55" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="70" y1="35" x2="80" y2="35" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="70" y1="45" x2="80" y2="45" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="70" y1="55" x2="80" y2="55" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="35" y1="20" x2="35" y2="10" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="45" y1="20" x2="45" y2="10" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="55" y1="20" x2="55" y2="10" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="35" y1="70" x2="35" y2="80" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="45" y1="70" x2="45" y2="80" stroke="#1a2f4e" stroke-width="1.5"/>
+        <line x1="55" y1="70" x2="55" y2="80" stroke="#1a2f4e" stroke-width="1.5"/>
+      </svg>
+    </div>
+
+    <!-- Login Card -->
+    <div class="user-login-card">
+      <h2 class="user-login-title">User  Login</h2>
+
+      <div class="user-auth-field">
+        <label class="user-auth-label">Username</label>
+        <input type="text" class="user-auth-input" id="user-username" placeholder="Enter your username" />
+      </div>
+
+      <div class="user-auth-field">
+        <label class="user-auth-label">Password</label>
+        <input type="password" class="user-auth-input" id="user-password" placeholder="••••••••••" />
+      </div>
+
+      <button class="user-login-btn" id="user-login-btn">LOGIN</button>
+    </div>
+
+    <!-- Footer -->
+    <div class="auth-page-footer">
+      © 2026 Zyra  &nbsp;•&nbsp; <a href="#">Privacy</a> &nbsp;•&nbsp; <a href="#">Terms of Service</a>
+    </div>
+  </div>
+
+  <script src="../static/js/cursor.js"></script>
+  <script src="../static/js/main.js"></script>
+  <script>
+    let userLoginSubmitting = false;
+
+    async function submitUserLogin() {
+      if (userLoginSubmitting) return;
+      const btn = document.getElementById('user-login-btn');
+      const usernameInput = document.getElementById('user-username');
+      const passwordInput = document.getElementById('user-password');
+      const u = usernameInput.value.trim();
+      const p = passwordInput.value.trim();
+      if (u && p) {
+        userLoginSubmitting = true;
+        btn.textContent = 'Signing in...';
+        btn.style.opacity = '0.8';
+        btn.disabled = true;
+        try {
+          const response = await fetch('/api/candidate/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: u, password: p })
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(data.error || 'Login failed');
+          }
+          localStorage.removeItem('zyra_admin_state');
+          localStorage.setItem('zyra_candidate_state', JSON.stringify(data));
+          window.location.href = 'user_dashboard.html';
+        } catch (error) {
+          userLoginSubmitting = false;
+          btn.textContent = 'LOGIN';
+          btn.style.opacity = '1';
+          btn.disabled = false;
+          alert(error.message || 'Login failed');
+        }
+      } else {
+        [usernameInput, passwordInput].forEach(i => {
+          if (!i.value) { i.style.borderColor = '#ef4444'; setTimeout(() => i.style.borderColor = '', 1500); }
+        });
+      }
+    }
+
+    document.getElementById('user-login-btn').addEventListener('click', submitUserLogin);
+    [document.getElementById('user-username'), document.getElementById('user-password')].forEach(input => {
+      input.addEventListener('keydown', event => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          submitUserLogin();
+        }
+      });
+    });
+  </script>
+</body>
+</html>

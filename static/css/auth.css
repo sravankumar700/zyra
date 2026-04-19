@@ -1,0 +1,199 @@
+/* ============ AUTH PAGES ============ */
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Circuit background for user login */
+.auth-page.user-auth {
+  background: linear-gradient(145deg, #e8f0f9 0%, #d4e4f5 50%, #e0eaf6 100%);
+}
+
+/* HR login background */
+.auth-page.hr-auth {
+  background: linear-gradient(145deg, #eaf0f8 0%, #dce8f4 50%, #e8f1fa 100%);
+}
+
+/* Circuit SVG lines background */
+.circuit-bg {
+  position: absolute; inset: 0; overflow: hidden; z-index: 0;
+}
+
+.circuit-bg svg {
+  width: 100%; height: 100%;
+  opacity: 0.25;
+}
+
+/* AI Icons floating */
+.auth-floating-icons {
+  position: absolute; inset: 0; pointer-events: none; z-index: 1;
+}
+
+.ai-icon-badge {
+  position: absolute;
+  width: 90px; height: 90px;
+  background: rgba(255,255,255,0.75);
+  backdrop-filter: blur(8px);
+  border: 1.5px solid rgba(200,216,232,0.8);
+  border-radius: var(--radius-md);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px;
+  box-shadow: var(--shadow-sm);
+  animation: float 4s ease-in-out infinite;
+}
+
+.ai-icon-badge .icon-img { font-size: 28px; }
+.ai-icon-badge .icon-label {
+  font-size: 10px; font-weight: 600;
+  color: var(--text-muted);
+  font-family: var(--font-head);
+  letter-spacing: 0.5px;
+}
+
+.ai-icon-badge:nth-child(1) { top: 20%; left: 5%; animation-delay: 0s; }
+.ai-icon-badge:nth-child(2) { bottom: 25%; left: 5%; animation-delay: 1s; }
+.ai-icon-badge:nth-child(3) { top: 20%; right: 5%; animation-delay: 0.5s; }
+.ai-icon-badge:nth-child(4) { bottom: 25%; right: 5%; animation-delay: 1.5s; }
+
+/* Login Card */
+.auth-card {
+  position: relative; z-index: 2;
+  width: 100%; max-width: 440px;
+  background: rgba(255,255,255,0.8);
+  backdrop-filter: blur(20px);
+  border: 1.5px solid rgba(200,216,232,0.75);
+  border-radius: var(--radius-xl);
+  padding: 48px 44px;
+  box-shadow: var(--shadow-lg);
+  animation: fadeUp 0.7s ease both;
+}
+
+.auth-title {
+  font-family: var(--font-head);
+  font-size: 28px; font-weight: 800;
+  color: var(--navy-dark);
+  margin-bottom: 8px;
+  text-align: left;
+}
+
+.auth-subtitle {
+  color: var(--text-muted);
+  font-size: 14px;
+  margin-bottom: 36px;
+}
+
+.auth-field {
+  margin-bottom: 20px;
+}
+
+.auth-label {
+  display: block;
+  font-size: 14px; font-weight: 500;
+  color: var(--text-dark);
+  margin-bottom: 8px;
+  font-family: var(--font-head);
+}
+
+.auth-input-wrap {
+  position: relative;
+}
+
+.auth-input {
+  background: rgba(240,246,252,0.9);
+  border: 1.5px solid rgba(197,219,240,0.9);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  font-size: 15px;
+  width: 100%;
+  transition: var(--transition);
+}
+
+.auth-input:focus {
+  background: white;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(37,99,168,0.12);
+}
+
+.auth-input.has-toggle { padding-right: 48px; }
+
+.toggle-pw {
+  position: absolute; right: 14px; top: 50%;
+  transform: translateY(-50%);
+  background: none; border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  transition: color 0.2s;
+}
+
+.toggle-pw:hover { color: var(--navy); }
+
+.auth-submit {
+  width: 100%;
+  padding: 16px;
+  background: linear-gradient(135deg, var(--blue) 0%, var(--navy) 100%);
+  color: white;
+  border: none;
+  border-radius: 50px;
+  font-family: var(--font-head);
+  font-size: 15px; font-weight: 700;
+  letter-spacing: 1.5px;
+  margin-top: 28px;
+  box-shadow: 0 6px 20px rgba(37,99,168,0.3);
+  transition: var(--transition);
+  text-transform: uppercase;
+}
+
+.auth-submit:hover {
+  box-shadow: 0 10px 30px rgba(37,99,168,0.4);
+  transform: translateY(-2px);
+}
+
+.auth-page-label {
+  position: absolute; top: 40px; left: 40px;
+  z-index: 3;
+}
+
+.auth-page-label h1 {
+  font-family: var(--font-head);
+  font-size: 32px; font-weight: 800;
+  color: var(--navy-dark);
+  border-bottom: 3px solid var(--navy-dark);
+  padding-bottom: 8px;
+}
+
+/* Circuit badge (user dashboard login) */
+.circuit-badge {
+  position: absolute;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px;
+}
+
+.circuit-icon {
+  width: 80px; height: 80px;
+  display: flex; align-items: center; justify-content: center;
+  animation: float 3.5s ease-in-out infinite;
+}
+
+.circuit-badge:nth-child(1) { top: 18%; left: 8%; }
+.circuit-badge:nth-child(1) .circuit-icon { animation-delay: 0s; }
+.circuit-badge:nth-child(2) { bottom: 22%; left: 8%; }
+.circuit-badge:nth-child(2) .circuit-icon { animation-delay: 0.8s; }
+.circuit-badge:nth-child(3) { top: 18%; right: 8%; }
+.circuit-badge:nth-child(3) .circuit-icon { animation-delay: 0.4s; }
+.circuit-badge:nth-child(4) { bottom: 22%; right: 8%; }
+.circuit-badge:nth-child(4) .circuit-icon { animation-delay: 1.2s; }
+
+.auth-footer-bar {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  text-align: center; padding: 16px;
+  font-size: 12px; color: var(--text-muted);
+  z-index: 2;
+}
+
+.auth-footer-bar a { color: var(--text-muted); text-decoration: none; }
+.auth-footer-bar a:hover { color: var(--navy); }

@@ -1,59 +1,74 @@
-<!-- templates/index.html -->
-<!doctype html>
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>zyra — Interview</title>
-  <link rel="stylesheet" href="/static/css/style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zyra – AI-Powered Hiring</title>
+  <link rel="stylesheet" href="../static/css/global.css" />
+  <link rel="stylesheet" href="../static/css/landing.css" />
 </head>
 <body>
-  <div class="ai-motion-bg" aria-hidden="true">
-    <span class="ai-float one" data-icon="AI"></span>
-    <span class="ai-float two" data-icon="ML"></span>
-    <span class="ai-float three" data-icon="01"></span>
-    <span class="ai-float four" data-icon="BOT"></span>
-    <span class="ai-float five" data-icon="CV"></span>
-  </div>
-  <div class="wrap">
-    <div class="card form-card" id="registration">
-      <h1>zyra</h1>
-      <p>Register Candidate</p>
-      <form id="candidateForm" enctype="multipart/form-data">
-        <div class="row">
-          <input name="first_name" placeholder="First name" required />
-          <input name="middle_name" placeholder="Middle name" />
-          <input name="last_name" placeholder="Last name" required />
-        </div>
-        <div class="row">
-          <label>Date of Birth</label>
-          <input type="date" name="dob" required />
-        </div>
-        <div class="row">
-          <input name="skills" placeholder="Skills (comma separated)" required />
-        </div>
-        <div class="row">
-          <input name="job_role" placeholder="Target Job Role (e.g. Python Dev)" required />
-        </div>
-        <div class="row">
-          <label>Upload Resume (PDF)</label>
-          <input name="resume" type="file" accept="application/pdf" required />
-        </div>
-        <div class="row">
-          <button type="submit" class="btn">Start Interview</button>
-        </div>
-      </form>
-    </div>
+  <div class="bg-mesh"></div>
 
-    <div class="card quiz-card" id="quiz" style="display:none;">
-      <h2>Interview Questions</h2>
-      <div id="questionsContainer"></div>
-      <div style="text-align:center; margin-top:1rem;">
-        <button id="submitAnswersBtn" class="btn">Submit Answers</button>
+  <div class="page-wrapper">
+    <!-- Navbar -->
+    <nav class="navbar">
+      <a href="index.html" class="navbar-brand">
+        <span class="navbar-brand-name">Zyra</span>
+      </a>
+      <div class="navbar-actions">
+        <a href="apply.html" class="nav-btn nav-btn-dark">Apply</a>
+        <a href="hr_login.html" class="nav-btn nav-btn-outline">Recruit</a>
+        <a href="user_login.html" class="nav-btn nav-btn-outline">User</a>
       </div>
-      <div id="result" style="margin-top:1rem;"></div>
-    </div>
+    </nav>
+
+    <!-- Hero -->
+    <main class="page-content">
+      <section class="landing-hero">
+        <p class="animate-fade-up animate-delay-1" style="font-size:13px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--text-muted);margin-bottom:12px;">AI-Powered Hiring Platform</p>
+        <h1 class="landing-hero-title animate-fade-up animate-delay-2">
+          Hire Smarter.<br/>Screen Faster.
+        </h1>
+        <p class="landing-hero-sub animate-fade-up animate-delay-3">
+          Zyra automates candidate screening with AI-driven MCQ tests, avatar interviews, and intelligent reporting — so your team can focus on what matters.
+        </p>
+        <a href="apply.html" class="btn btn-primary btn-large landing-get-started animate-fade-up animate-delay-4">
+          Get started
+        </a>
+      </section>
+
+      <!-- Cards -->
+      <section class="landing-cards">
+        <div class="landing-card animate-fade-up animate-delay-1">
+          <h2 class="landing-card-title">Company Profile</h2>
+          <p class="landing-card-text">AI-Driven Recruitment: It acts as an automated "SmartHire" system that screens resumes, analyzes job descriptions, and provides high-accuracy candidate matching</p>
+        </div>
+
+        <div class="landing-card animate-fade-up animate-delay-2">
+          <h2 class="landing-card-title">Service Highlights</h2>
+          <p class="landing-card-text">Streamline recruitment with AI-assisted screening, smart scoring, and video analysis.</p>
+          <div class="landing-card-icons">
+            <div class="landing-card-icon">👥</div>
+            <div class="landing-card-icon">💡</div>
+            <div class="landing-card-icon">🖼</div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <span>Zyra</span>
+      <div class="footer-social" style="align-items:center;gap:12px;">
+        <a href="#" class="footer-icon">f</a>
+        <a href="#" class="footer-icon">𝕏</a>
+        <span style="color:rgba(255,255,255,0.5);font-size:12px;">Zyra © 2026</span>
+      </div>
+    </footer>
   </div>
 
-  <script src="/static/js/main.js"></script>
+  <script src="../static/js/cursor.js"></script>
+  <script src="../static/js/main.js"></script>
 </body>
 </html>

@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Apply for a Job – Zyra</title>
+  <link rel="stylesheet" href="../static/css/global.css" />
+  <link rel="stylesheet" href="../static/css/apply.css" />
+</head>
+<body>
+  <div class="bg-mesh"></div>
+
+  <!-- ===== TOP BAR ===== -->
+  <header class="apply-topbar">
+    <a href="index.html" class="apply-topbar-brand">
+      <span class="apply-topbar-name">Zyra</span>
+      <span class="apply-topbar-pill">Careers</span>
+    </a>
+    <div class="apply-topbar-right">
+      <a href="user_dashboard.html" class="topbar-back-btn">← Dashboard</a>
+      <a href="index.html" class="topbar-back-btn">Home</a>
+    </div>
+  </header>
+
+  <div class="apply-layout">
+
+    <!-- ===== LEFT SIDEBAR: Job Selector ===== -->
+    <aside class="apply-sidebar">
+
+      <div class="sidebar-section-label">Select Position</div>
+
+      <!-- Dropdown -->
+      <div class="job-dropdown-wrap">
+        <button class="job-dropdown-trigger" id="job-dropdown-trigger">
+          <span id="selected-job-text" style="color:var(--text-muted);font-weight:500;">Choose a job opening…</span>
+          <span class="dropdown-arrow">▼</span>
+        </button>
+        <div class="job-dropdown-list" id="job-dropdown-list">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <!-- Job Preview -->
+      <div class="sidebar-section-label">Job Details</div>
+
+      <!-- Placeholder when nothing selected -->
+      <div class="no-job-placeholder" id="no-job-selected">
+        <div class="icon">🔍</div>
+        <p>Select a job from the dropdown above to see details and requirements.</p>
+      </div>
+
+      <!-- Actual preview (shown when selected) -->
+      <div class="job-preview-card" id="job-preview" style="display:none;"></div>
+
+    </aside>
+
+    <!-- ===== RIGHT: Form Panel ===== -->
+    <main class="apply-form-panel">
+
+      <!-- ===== SUCCESS SCREEN ===== -->
+      <div class="success-screen" id="success-screen">
+        <div class="success-icon-wrap">🎉</div>
+        <h2 class="success-title">Application Submitted!</h2>
+        <p class="success-subtitle">
+          Well done, <strong id="success-name"></strong>! Your application for <strong id="success-job"></strong> has been successfully received.
+        </p>
+        <p style="font-size:14px;color:var(--text-muted);">Our team will review your profile and reach out within 3–5 business days.</p>
+        <div class="success-ref" id="app-reference">Application Reference: —</div>
+        <div class="success-actions">
+          <a href="apply.html" class="btn btn-primary" style="border-radius:50px;padding:12px 28px;">Apply for Another Role</a>
+          <a href="user_login.html" class="btn btn-outline" style="border-radius:50px;padding:12px 28px;">Go to Login</a>
+        </div>
+      </div>
+
+      <!-- ===== MAIN FORM CONTAINER ===== -->
+      <div id="form-container">
+
+        <h1 class="form-page-title">Apply for a Position</h1>
+        <p class="form-page-subtitle">
+          Applying for: <strong id="form-job-name" style="color:var(--navy-dark);">—</strong>
+        </p>
+
+        <!-- Progress Steps -->
+        <div class="form-steps">
+          <div class="form-step active">
+            <div class="step-circle active">1</div>
+            <span class="step-label">Personal Info</span>
+          </div>
+          <div class="step-line"></div>
+          <div class="form-step">
+            <div class="step-circle">2</div>
+            <span class="step-label">Experience</span>
+          </div>
+          <div class="step-line"></div>
+          <div class="form-step">
+            <div class="step-circle">3</div>
+            <span class="step-label">Review & Submit</span>
+          </div>
+        </div>
+
+        <!-- ========== STEP 1: PERSONAL INFO ========== -->
+        <div class="form-step-page" id="step-1">
+
+          <!-- Basic Info -->
+          <div class="form-section" style="animation-delay:0s">
+            <div class="form-section-header">
+              <div class="section-icon">👤</div>
+              <div>
+                <div class="section-title">Personal Information</div>
+                <div class="section-subtitle">Tell us who you are</div>
+              </div>
+            </div>
+
+            <div class="form-grid form-grid-2">
+              <div class="form-field">
+                <label class="field-label" for="fname">First Name <span class="field-required">*</span></label>
+                <input type="text" id="fname" class="field-input" placeholder="e.g. Arjun" />
+                <span class="field-error" id="fname-error">First name is required.</span>
+              </div>
+              <div class="form-field">
+                <label class="field-label" for="lname">Last Name <span class="field-required">*</span></label>
+                <input type="text" id="lname" class="field-input" placeholder="e.g. Sharma" />
+                <span class="field-error" id="lname-error">Last name is required.</span>
+              </div>
+              <div class="form-field">
+                <label class="field-label" for="email">Email Address <span class="field-required">*</span></label>
+                <input type="email" id="email" class="field-input" placeholder="you@example.com" />
+                <span class="field-error" id="email-error">Valid email is required.</span>
+              </div>
+              <div class="form-field">
+                <label class="field-label" for="phone">Phone Number <span class="field-required">*</span></label>
+                <input type="tel" id="phone" class="field-input" placeholder="+91 98765 43210" />
+                <span class="field-error" id="phone-error">Phone number is required.</span>
+              </div>
+              <div class="form-field">
+                <label class="field-label" for="location">Current Location</label>
+                <input type="text" id="location" class="field-input" placeholder="e.g. Hyderabad, India" />
+              </div>
+              <div class="form-field">
+                <label class="field-label" for="gender">Gender</label>
+                <select id="gender" class="field-input">
+                  <option value="">Prefer not to say<span class="field-required">*</span></option>
+                  <option>Male</option>
+                  <option>Female</option>
+                  <option>Non-binary</option>
+                  <option>Other</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Online Presence -->
+          <div class="form-section" style="animation-delay:0.1s">
+            <div class="form-section-header">
+              <div class="section-icon">🌐</div>
+              <div>
+                <div class="section-title">Online Presence</div>
+                <div class="section-subtitle">Let us see your work</div>
+              </div>
+            </div>
+
+            <div class="form-grid form-grid-2">
+              <div class="form-field">
+                <label class="field-label" for="linkedin">LinkedIn Profile<span class="field-required">*</span></label>
+                <input type="url" id="linkedin" class="field-input" placeholder="https://linkedin.com/in/yourname" />
+              </div>
+              <div class="form-field">
+                <label class="field-label" for="portfolio">Portfolio / GitHub<span class="field-required">*</span></label>
+                <input type="url" id="portfolio" class="field-input" placeholder="https://github.com/yourname" />
+              </div>
+              <div class="form-field full">
+                <label class="field-label" for="website">Personal Website</label>
+                <input type="url" id="website" class="field-input" placeholder="https://yourwebsite.com" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Resume Upload -->
+          <div class="form-section" style="animation-delay:0.2s">
+            <div class="form-section-header">
+              <div class="section-icon">📄</div>
+              <div>
+                <div class="section-title">Resume / CV<span class="field-required">*</span></div>
+        <div class="section-subtitle">PDF only, max 5MB</div>
+              </div>
+            </div>
+
+            <div class="file-upload-zone" id="resume-zone">
+              <input type="file" id="resume-input" class="file-upload-input" accept=".pdf,application/pdf" required />
+              <div class="file-upload-icon">📎</div>
+              <div class="file-upload-title">Upload your Resume / CV</div>
+              <div class="file-upload-sub"><span>Click to browse</span> or drag & drop your file here</div>
+            </div>
+            <div class="file-name-display" id="resume-name-display">
+              <span class="file-name" id="resume-name"></span>
+              <button class="file-remove" id="resume-remove" type="button">✕</button>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ========== STEP 2: EXPERIENCE ========== -->
+        <div class="form-step-page" id="step-2">
+
+          <!-- Work Experience -->
+          <div class="form-section" style="animation-delay:0s">
+            <div class="form-section-header">
+              <div class="section-icon">💼</div>
+              <div>
+                <div class="section-title">Work Experience</div>
+                <div class="section-subtitle">Your professional background</div>
+              </div>
+            </div>
+
+            <div class="form-grid form-grid-2">
+              <div class="form-field">
+                <label class="field-label" for="experience">Years of Experience <span class="field-required">*</span></label>
+                <select id="experience" class="field-input">
+                  <option value="">Select experience level</option>
+                  <option value="0-1">0–1 years (Fresher)</option>
+                  <option value="1-2">1–2 years (Junior)</option>
+                  <option value="2-4">2–4 years (Mid-level)</option>
+                  <option value="4-6">4–6 years (Senior)</option>
+                  <option value="6-10">6–10 years (Lead)</option>
+                  <option value="10+">10+ years (Principal / Expert)</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label class="field-label" for="current_role">Current / Most Recent Role</label>
+                <input type="text" id="current_role" class="field-input" placeholder="e.g. Senior React Developer" />
+              </div>
+              <div class="form-field">
+                <label class="field-label" for="current_company">Current Company</label>
+                <input type="text" id="current_company" class="field-input" placeholder="e.g. TechCorp Solutions" />
+              </div>
+              <div class="form-field">
+                <label class="field-label" for="education">Highest Education</label>
+                <select id="education" class="field-input">
+                  <option value="">Select education level</option>
+                  <option>High School / 12th</option>
+                  <option>Diploma</option>
+                  <option>Bachelor's Degree (B.Tech / B.E / B.Sc)</option>
+                  <option>Master's Degree (M.Tech / M.E / M.Sc / MBA)</option>
+                  <option>Doctorate / PhD</option>
+                  <option>Other</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label class="field-label" for="availability">Availability to Join</label>
+                <select id="availability" class="field-input">
+                  <option value="">Select availability</option>
+                  <option>Immediately</option>
+                  <option>2 weeks notice</option>
+                  <option>1 month notice</option>
+                  <option>2 months notice</option>
+                  <option>3 months notice</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label class="field-label" for="expected_salary">Expected CTC / Salary</label>
+                <input type="text" id="expected_salary" class="field-input" placeholder="e.g. ₹18 LPA or $90,000" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Skills -->
+          <div class="form-section" style="animation-delay:0.1s">
+            <div class="form-section-header">
+              <div class="section-icon"></div>
+              <div>
+                <div class="section-title">Skills & Technologies</div>
+                <div class="section-subtitle">Select all that apply</div>
+              </div>
+            </div>
+
+            <div class="skills-selector">
+              <button class="skill-toggle" type="button" data-skill="JavaScript">JavaScript</button>
+              <button class="skill-toggle" type="button" data-skill="TypeScript">TypeScript</button>
+              <button class="skill-toggle" type="button" data-skill="React">React</button>
+              <button class="skill-toggle" type="button" data-skill="Vue.js">Vue.js</button>
+              <button class="skill-toggle" type="button" data-skill="Node.js">Node.js</button>
+              <button class="skill-toggle" type="button" data-skill="Python">Python</button>
+              <button class="skill-toggle" type="button" data-skill="Java">Java</button>
+              <button class="skill-toggle" type="button" data-skill="C++">C++</button>
+              <button class="skill-toggle" type="button" data-skill="SQL">SQL</button>
+              <button class="skill-toggle" type="button" data-skill="PostgreSQL">PostgreSQL</button>
+              <button class="skill-toggle" type="button" data-skill="MongoDB">MongoDB</button>
+              <button class="skill-toggle" type="button" data-skill="AWS">AWS</button>
+              <button class="skill-toggle" type="button" data-skill="Docker">Docker</button>
+              <button class="skill-toggle" type="button" data-skill="Kubernetes">Kubernetes</button>
+              <button class="skill-toggle" type="button" data-skill="CI/CD">CI/CD</button>
+              <button class="skill-toggle" type="button" data-skill="Figma">Figma</button>
+              <button class="skill-toggle" type="button" data-skill="REST APIs">REST APIs</button>
+              <button class="skill-toggle" type="button" data-skill="GraphQL">GraphQL</button>
+              <button class="skill-toggle" type="button" data-skill="Machine Learning">Machine Learning</button>
+              <button class="skill-toggle" type="button" data-skill="Data Analysis">Data Analysis</button>
+              <button class="skill-toggle" type="button" data-skill="Agile / Scrum">Agile / Scrum</button>
+              <button class="skill-toggle" type="button" data-skill="Communication">Communication</button>
+            </div>
+          </div>
+
+          <!-- Self-Assessment -->
+          <div class="form-section" style="animation-delay:0.15s">
+            <div class="form-section-header">
+              <div class="section-icon">⭐</div>
+              <div>
+                <div class="section-title">Self Assessment</div>
+                <div class="section-subtitle">Rate your proficiency</div>
+              </div>
+            </div>
+
+            <div class="form-grid" style="gap:20px;">
+              <div class="form-field" style="flex-direction:row;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+                <label class="field-label" style="margin:0;">Problem Solving</label>
+                <div class="star-rating" data-rating="0">
+                  <button class="star-btn" type="button">★</button>
+                  <button class="star-btn" type="button">★</button>
+                  <button class="star-btn" type="button">★</button>
+                  <button class="star-btn" type="button">★</button>
+                  <button class="star-btn" type="button">★</button>
+                </div>
+              </div>
+              <div class="form-field" style="flex-direction:row;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+                <label class="field-label" style="margin:0;">Communication Skills</label>
+                <div class="star-rating" data-rating="0">
+                  <button class="star-btn" type="button">★</button>
+                  <button class="star-btn" type="button">★</button>
+                  <button class="star-btn" type="button">★</button>
+                  <button class="star-btn" type="button">★</button>
+                  <button class="star-btn" type="button">★</button>
+                </div>
+              </div>
+              <div class="form-field" style="flex-direction:row;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+                <label class="field-label" style="margin:0;">Technical Expertise</label>
+                <div class="star-rating" data-rating="0">
+                  <button class="star-btn" type="button">★</button>
+                  <button class="star-btn" type="button">★</button>
+                  <button class="star-btn" type="button">★</button>
+                  <button class="star-btn" type="button">★</button>
+                  <button class="star-btn" type="button">★</button>
+                </div>
+              </div>
+              <div class="form-field" style="flex-direction:row;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+                <label class="field-label" style="margin:0;">Teamwork & Collaboration</label>
+                <div class="star-rating" data-rating="0">
+                  <button class="star-btn" type="button">★</button>
+                  <button class="star-btn" type="button">★</button>
+                  <button class="star-btn" type="button">★</button>
+                  <button class="star-btn" type="button">★</button>
+                  <button class="star-btn" type="button">★</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+         
+
+        <!-- ========== STEP 3: REVIEW & SUBMIT ========== -->
+        <div class="form-step-page" id="step-3">
+
+          <div class="form-section" style="animation-delay:0s">
+            <div class="form-section-header">
+              <div class="section-icon">🔍</div>
+              <div>
+                <div class="section-title">Review Your Application</div>
+                <div class="section-subtitle">Confirm all details before submitting</div>
+              </div>
+            </div>
+
+            <!-- Summary cards -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+
+              <!-- Position applied -->
+              <div style="background:linear-gradient(135deg,rgba(37,99,168,0.08)0%,rgba(26,47,78,0.05)100%);border:1px solid rgba(37,99,168,0.15);border-radius:12px;padding:18px;">
+                <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--blue);text-transform:uppercase;margin-bottom:8px;">Position Applied</div>
+                <div style="font-family:var(--font-head);font-size:16px;font-weight:700;color:var(--navy-dark);" id="review-job-title">—</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:4px;" id="review-job-dept">—</div>
+              </div>
+
+              <!-- Applicant -->
+              <div style="background:rgba(255,255,255,0.7);border:1px solid var(--border);border-radius:12px;padding:18px;">
+                <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px;">Applicant</div>
+                <div style="font-family:var(--font-head);font-size:16px;font-weight:700;color:var(--navy-dark);" id="review-name">—</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:4px;" id="review-email">—</div>
+              </div>
+
+              <!-- Experience -->
+              <div style="background:rgba(255,255,255,0.7);border:1px solid var(--border);border-radius:12px;padding:18px;">
+                <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px;">Experience</div>
+                <div style="font-family:var(--font-head);font-size:15px;font-weight:600;color:var(--navy-dark);" id="review-experience">—</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:4px;" id="review-current-role">—</div>
+              </div>
+
+              <!-- Resume -->
+              <div style="background:rgba(255,255,255,0.7);border:1px solid var(--border);border-radius:12px;padding:18px;">
+                <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--text-muted);text-transform:uppercase;margin-bottom:8px;">Resume</div>
+                <div style="font-size:13px;font-weight:500;color:var(--navy-dark);" id="review-resume">No file uploaded</div>
+              </div>
+
+            </div>
+
+            <!-- Skills review -->
+            <div style="margin-top:18px;background:rgba(255,255,255,0.7);border:1px solid var(--border);border-radius:12px;padding:18px;">
+              <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--text-muted);text-transform:uppercase;margin-bottom:12px;">Selected Skills</div>
+              <div id="review-skills" style="display:flex;flex-wrap:wrap;gap:6px;">
+                <span style="font-size:13px;color:var(--text-muted);">No skills selected yet.</span>
+              </div>
+            </div>
+
+            <!-- Cover letter preview -->
+            <div style="margin-top:18px;background:rgba(255,255,255,0.7);border:1px solid var(--border);border-radius:12px;padding:18px;">
+              <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:var(--text-muted);text-transform:uppercase;margin-bottom:10px;">Cover Letter Preview</div>
+              <p style="font-size:13px;color:var(--text-mid);line-height:1.65;max-height:120px;overflow:hidden;position:relative;" id="review-cover">
+                <em style="color:var(--text-muted);">No cover letter written yet.</em>
+              </p>
+            </div>
+          </div>
+
+          <!-- Declaration -->
+          <div class="form-section" style="animation-delay:0.1s">
+            <div class="form-section-header">
+              <div class="section-icon">📋</div>
+              <div>
+                <div class="section-title">Declaration</div>
+                <div class="section-subtitle">Please confirm the following</div>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:14px;">
+              <label class="checkbox-field">
+                <input type="checkbox" id="decl1" />
+                <div class="custom-checkbox"></div>
+                <span class="checkbox-label">I confirm that all information provided in this application is accurate and complete to the best of my knowledge.</span>
+              </label>
+              <label class="checkbox-field">
+                <input type="checkbox" id="decl2" />
+                <div class="custom-checkbox"></div>
+                <span class="checkbox-label">I consent to Zyra processing my personal data for recruitment purposes in accordance with the <a href="#">Privacy Policy</a>.</span>
+              </label>
+              <label class="checkbox-field">
+                <input type="checkbox" id="decl3" />
+                <div class="custom-checkbox"></div>
+                <span class="checkbox-label">I agree to the <a href="#">Terms of Service</a> and understand that false information may result in disqualification.</span>
+              </label>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ===== FORM FOOTER NAVIGATION ===== -->
+        <div class="form-footer">
+          <button class="form-nav-btn btn-prev" id="btn-prev" style="display:none;">← Previous</button>
+          <div></div>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <button class="form-nav-btn btn-next" id="btn-next">
+              Continue →
+            </button>
+            <button class="form-nav-btn btn-submit" id="btn-submit" style="display:none;">
+               Submit Application
+            </button>
+          </div>
+        </div>
+
+      </div><!-- /#form-container -->
+
+    </main>
+
+  </div><!-- /.apply-layout -->
+
+  <script src="../static/js/jobs_store.js"></script>
+  <script src="../static/js/cursor.js"></script>
+  <script src="../static/js/main.js"></script>
+  <script src="../static/js/apply.js"></script>
+
+  <!-- Review step updater -->
+  <script>
+    // Populate review step when entering step 3
+    const _origGoTo = window._goToStep;
+    document.addEventListener('DOMContentLoaded', () => {
+      // Intercept step 3 activation via MutationObserver
+      const step3 = document.getElementById('step-3');
+      const observer = new MutationObserver(() => {
+        if (step3.classList.contains('active')) populateReview();
+      });
+      observer.observe(step3, { attributes: true, attributeFilter: ['class'] });
+
+      function populateReview() {
+        const job = document.getElementById('selected-job-text')?.textContent;
+        const jobTitleEl = document.getElementById('review-job-title');
+        const jobDeptEl = document.getElementById('review-job-dept');
+
+        if (jobTitleEl && job && job !== 'Choose a job opening…') {
+          jobTitleEl.textContent = job;
+        }
+
+        // Name & email
+        const fname = document.getElementById('fname')?.value || '';
+        const lname = document.getElementById('lname')?.value || '';
+        const email = document.getElementById('email')?.value || '';
+        document.getElementById('review-name').textContent = fname + ' ' + lname || '—';
+        document.getElementById('review-email').textContent = email || '—';
+
+        // Experience
+        const expEl = document.getElementById('experience');
+        const exp = expEl?.options[expEl.selectedIndex]?.text || '—';
+        const role = document.getElementById('current_role')?.value || '';
+        document.getElementById('review-experience').textContent = exp;
+        document.getElementById('review-current-role').textContent = role || 'Current role not provided';
+
+        // Resume
+        const resumeName = document.getElementById('resume-name')?.textContent;
+        document.getElementById('review-resume').textContent = resumeName || 'No file uploaded';
+
+        // Skills
+        const selectedSkills = [...document.querySelectorAll('.skill-toggle.selected')].map(el => el.dataset.skill);
+        const skillsDiv = document.getElementById('review-skills');
+        if (skillsDiv) {
+          skillsDiv.innerHTML = selectedSkills.length
+            ? selectedSkills.map(s => `<span class="skill-pill">${s}</span>`).join('')
+            : '<span style="font-size:13px;color:var(--text-muted);">No skills selected.</span>';
+        }
+
+        // Cover letter
+        const cover = document.getElementById('cover_letter')?.value || '';
+        const coverEl = document.getElementById('review-cover');
+        if (coverEl) coverEl.textContent = cover || '';
+        if (!cover && coverEl) coverEl.innerHTML = '<em style="color:var(--text-muted);">No cover letter written yet.</em>';
+
+        // Job dept from preview
+        const previewDept = document.querySelector('#job-preview .job-preview-dept');
+        if (previewDept && jobDeptEl) jobDeptEl.textContent = previewDept.textContent;
+      }
+
+      // Override submit to check declarations
+      const origSubmitClick = document.getElementById('btn-submit').onclick;
+      document.getElementById('btn-submit').addEventListener('click', function(e) {
+        const d1 = document.getElementById('decl1')?.checked;
+        const d2 = document.getElementById('decl2')?.checked;
+        const d3 = document.getElementById('decl3')?.checked;
+        if (!d1 || !d2 || !d3) {
+          // Toast via apply.js — trigger manually
+          const toast = document.createElement('div');
+          toast.textContent = '⚠️ Please accept all declarations to proceed.';
+          toast.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;padding:13px 20px;border-radius:12px;font-family:var(--font-head);font-size:13px;font-weight:600;color:white;background:linear-gradient(135deg,#ef4444,#dc2626);box-shadow:0 8px 30px rgba(0,0,0,0.2);';
+          document.body.appendChild(toast);
+          setTimeout(() => toast.remove(), 3000);
+          e.stopImmediatePropagation();
+        }
+      }, true);
+    });
+  </script>
+</body>
+</html>
+
+
+
+
+
+
