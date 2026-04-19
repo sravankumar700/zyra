@@ -34,6 +34,63 @@ except Exception:
         PdfReader = None
 
 
+class UnavailableCollection:
+    def __init__(self, name, error):
+        self.name = name
+        self.error = error
+
+    def _raise(self):
+        raise ServerSelectionTimeoutError(
+            f"MongoDB is unavailable for collection '{self.name}': {self.error}"
+        )
+
+    def find(self, *args, **kwargs):
+        self._raise()
+
+    def find_one(self, *args, **kwargs):
+        self._raise()
+
+    def insert_one(self, *args, **kwargs):
+        self._raise()
+
+    def update_one(self, *args, **kwargs):
+        self._raise()
+
+    def update_many(self, *args, **kwargs):
+        self._raise()
+
+    def delete_one(self, *args, **kwargs):
+        self._raise()
+
+    def delete_many(self, *args, **kwargs):
+        self._raise()
+
+    def count_documents(self, *args, **kwargs):
+        self._raise()
+
+
+class UnavailableDatabase:
+    def __init__(self, error):
+        self.error = error
+
+    def __getattr__(self, name):
+        return UnavailableCollection(name, self.error)
+
+    def __getitem__(self, name):
+        return UnavailableCollection(name, self.error)
+
+
+class UnavailableGridFS:
+    def __init__(self, error):
+        self.error = error
+
+    def put(self, *args, **kwargs):
+        raise ServerSelectionTimeoutError(f"MongoDB GridFS is unavailable: {self.error}")
+
+    def delete(self, *args, **kwargs):
+        raise ServerSelectionTimeoutError(f"MongoDB GridFS is unavailable: {self.error}")
+
+
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET", "super_secret_key")
 app.config["TEMPLATES_AUTO_RELOAD"] = True
@@ -49,22 +106,30 @@ cloudinary.config(
 # MongoDB Atlas Connection
 # -------------------------------
 mongo_kwargs = {
-    "serverSelectionTimeoutMS": int(os.getenv("MONGO_SERVER_SELECTION_TIMEOUT_MS", "15000")),
-    "connectTimeoutMS": int(os.getenv("MONGO_CONNECT_TIMEOUT_MS", "15000")),
-    "socketTimeoutMS": int(os.getenv("MONGO_SOCKET_TIMEOUT_MS", "20000"))
+    "serverSelectionTimeoutMS": int(os.getenv("MONGO_SERVER_SELECTION_TIMEOUT_MS", "5000")),
+    "connectTimeoutMS": int(os.getenv("MONGO_CONNECT_TIMEOUT_MS", "5000")),
+    "socketTimeoutMS": int(os.getenv("MONGO_SOCKET_TIMEOUT_MS", "10000"))
 }
-if Config.MONGO_URI.startswith("mongodb+srv://"):
+if str(Config.MONGO_URI or "").startswith("mongodb+srv://"):
     mongo_kwargs["tls"] = True
     mongo_kwargs["tlsCAFile"] = certifi.where()
 
-client = MongoClient(Config.MONGO_URI, **mongo_kwargs)
-db = client[Config.MONGO_DB]
-fs = GridFS(db)
-
+mongo_startup_error = None
 try:
-    client.admin.command("ping")
+    client = MongoClient(Config.MONGO_URI, **mongo_kwargs)
+    db = client[Config.MONGO_DB]
+    fs = GridFS(db)
+    try:
+        client.admin.command("ping")
+    except Exception as e:
+        print("MongoDB ping failed on startup:", str(e))
+        mongo_startup_error = e
 except Exception as e:
-    print("MongoDB ping failed on startup:", str(e))
+    print("MongoDB client initialization failed:", str(e))
+    mongo_startup_error = e
+    client = None
+    db = UnavailableDatabase(e)
+    fs = UnavailableGridFS(e)
 
 applications = db.applications
 users = db.users
@@ -77,6 +142,17 @@ MCQ_PROMOTION_THRESHOLD_PERCENT = float(os.getenv("MCQ_PROMOTION_THRESHOLD_PERCE
 RESUME_AUTO_CREDENTIAL_THRESHOLD_PERCENT = float(os.getenv("RESUME_AUTO_CREDENTIAL_THRESHOLD_PERCENT", "60"))
 MCQ_TEST_DURATION_SECONDS = max(300, int(os.getenv("MCQ_TEST_DURATION_SECONDS", "3600")))
 VIRTUAL_TEST_DURATION_SECONDS = max(300, int(os.getenv("VIRTUAL_TEST_DURATION_SECONDS", "3600")))
+
+
+def mongo_is_available():
+    return mongo_startup_error is None
+
+
+def mongo_unavailable_payload():
+    return {
+        "error": "Database connection failed",
+        "details": str(mongo_startup_error or "MongoDB is not available")
+    }
 
 
 def utc_now():
@@ -1141,6 +1217,7 @@ Login at: https://zyra-avatar.vercel.app/
 Regards,
 HR Harsh
 """
+    return send_email(user["email"], subject, body)
 
 
 def ensure_demo_candidate():
@@ -1264,7 +1341,30 @@ def ensure_demo_candidate():
         return
 
     users.insert_one(demo_document)
-    return send_email(user["email"], subject, body)
+
+
+def safe_ensure_default_jobs():
+    if not mongo_is_available():
+        print("Default job seed skipped:", mongo_unavailable_payload()["details"])
+        return False
+    try:
+        ensure_default_jobs()
+        return True
+    except Exception as e:
+        print("Default job seed skipped:", str(e))
+        return False
+
+
+def safe_ensure_demo_candidate():
+    if not mongo_is_available():
+        print("Demo candidate seed skipped:", mongo_unavailable_payload()["details"])
+        return False
+    try:
+        ensure_demo_candidate()
+        return True
+    except Exception as e:
+        print("Demo candidate seed skipped:", str(e))
+        return False
 
 
 def extract_json_block(text):
@@ -2692,9 +2792,14 @@ FRONTEND_PAGES = {
 
 @app.route("/")
 def home():
-    ensure_default_jobs()
-    ensure_demo_candidate()
+    safe_ensure_default_jobs()
+    safe_ensure_demo_candidate()
     return render_template("index.html")
+
+
+@app.route("/favicon.ico")
+def favicon():
+    return "", 204
 
 
 @app.route("/<page_name>.html")
@@ -2708,6 +2813,8 @@ def frontend_page(page_name):
     if page_name in {"user_dashboard", "mcq_test", "avatar_interview"}:
         if not session.get("candidate_id"):
             return redirect("/candidate/login")
+        if not mongo_is_available():
+            return render_template("user_login.html"), 503
         user = users.find_one({"_id": ObjectId(session["candidate_id"])})
         if not user:
             session.clear()
@@ -2725,14 +2832,14 @@ def frontend_page(page_name):
 
 @app.route("/candidate/login")
 def candidate_login_page():
-    ensure_default_jobs()
-    ensure_demo_candidate()
+    safe_ensure_default_jobs()
+    safe_ensure_demo_candidate()
     return render_template("user_login.html")
 
 
 @app.route("/register")
 def register_page():
-    ensure_default_jobs()
+    safe_ensure_default_jobs()
     return render_template("user_login.html")
 
 
@@ -2747,7 +2854,7 @@ def admin_dashboard():
     """Render the HR dashboard for viewing and managing applications"""
     if not session.get("admin"):
         return redirect("/admin/login")
-    ensure_demo_candidate()
+    safe_ensure_demo_candidate()
     return render_template("admin_dashboard.html")
 
 
@@ -2755,6 +2862,8 @@ def admin_dashboard():
 def candidate_interview_v2():
     if not session.get("candidate_id"):
         return redirect("/")
+    if not mongo_is_available():
+        return redirect("/candidate/login")
 
     user = users.find_one({"_id": ObjectId(session["candidate_id"])})
     if not user:
@@ -2799,18 +2908,36 @@ def admin_logout():
 # -------------------------------
 @app.route("/api/jobs", methods=["GET"])
 def get_jobs():
-    ensure_default_jobs()
-    items = []
-    for job in jobs.find().sort("created_at", -1):
-        job["_id"] = str(job["_id"])
-        items.append(job)
-    return jsonify({"jobs": items})
+    if not mongo_is_available():
+        fallback_jobs = [serialize_admin_value(dict(job)) for job in DEFAULT_JOBS]
+        return jsonify({
+            "jobs": fallback_jobs,
+            "warning": "Database unavailable. Showing bundled job list.",
+            "details": mongo_unavailable_payload()["details"]
+        }), 200
+
+    safe_ensure_default_jobs()
+    try:
+        items = []
+        for job in jobs.find().sort("created_at", -1):
+            job["_id"] = str(job["_id"])
+            items.append(job)
+        return jsonify({"jobs": items})
+    except (ServerSelectionTimeoutError, PyMongoError) as e:
+        fallback_jobs = [serialize_admin_value(dict(job)) for job in DEFAULT_JOBS]
+        return jsonify({
+            "jobs": fallback_jobs,
+            "warning": "Database unavailable. Showing bundled job list.",
+            "details": str(e)
+        }), 200
 
 
 @app.route("/api/jobs", methods=["POST"])
 def create_job():
     if not is_staff_authorized("admin", "hr", "recruiter"):
         return jsonify({"error": "Unauthorized"}), 403
+    if not mongo_is_available():
+        return jsonify(mongo_unavailable_payload()), 503
 
     data = request.get_json() or {}
     required_fields = ["title", "department", "location", "experience", "required_skills", "threshold", "description"]
@@ -2856,12 +2983,20 @@ def apply():
     for field in required_fields:
         if not str(data.get(field, "")).strip():
             return jsonify({"error": f"{field.replace('_', ' ').title()} is required"}), 400
+    if not mongo_is_available():
+        return jsonify(mongo_unavailable_payload()), 503
 
-    ensure_default_jobs()
+    safe_ensure_default_jobs()
     selected_job = None
     job_id = str(data.get("job_id", "")).strip()
     if job_id:
-        selected_job = jobs.find_one({"id": job_id})
+        try:
+            selected_job = jobs.find_one({"id": job_id})
+        except (ServerSelectionTimeoutError, PyMongoError) as e:
+            return jsonify({
+                "error": "Database connection failed",
+                "details": str(e)
+            }), 503
         if not selected_job:
             return jsonify({"error": "Selected job was not found"}), 400
 
@@ -3044,38 +3179,46 @@ def admin_login():
 def get_applications():
     if not session.get("admin"):
         return jsonify({"error": "Unauthorized"}), 403
+    if not mongo_is_available():
+        return jsonify(mongo_unavailable_payload()), 503
 
-    ensure_demo_candidate()
+    safe_ensure_demo_candidate()
 
-    pending = [
-        public_application_document(app_doc)
-        for app_doc in applications.find({"status": "pending"}).sort("created_at", -1)
-    ]
-    selected = [
-        public_candidate_document(user_doc)
-        for user_doc in users.find({
-            "status": {"$ne": "rejected"},
-            "demo_user": {"$ne": True}
-        }).sort("updated_at", -1)
-    ]
-    rejected = [
-        public_application_document(app_doc)
-        for app_doc in applications.find({"status": "rejected"}).sort("updated_at", -1)
-    ] + [
-        public_candidate_document(user_doc)
-        for user_doc in users.find({
-            "status": "rejected",
-            "demo_user": {"$ne": True}
-        }).sort("updated_at", -1)
-    ]
-    reports = [
-        public_candidate_document(user_doc, include_report=True)
-        for user_doc in users.find({
-            "interview_taken": True,
-            "virtual_taken": True,
-            "demo_user": {"$ne": True}
-        }).sort("virtual_completed_at", -1)
-    ]
+    try:
+        pending = [
+            public_application_document(app_doc)
+            for app_doc in applications.find({"status": "pending"}).sort("created_at", -1)
+        ]
+        selected = [
+            public_candidate_document(user_doc)
+            for user_doc in users.find({
+                "status": {"$ne": "rejected"},
+                "demo_user": {"$ne": True}
+            }).sort("updated_at", -1)
+        ]
+        rejected = [
+            public_application_document(app_doc)
+            for app_doc in applications.find({"status": "rejected"}).sort("updated_at", -1)
+        ] + [
+            public_candidate_document(user_doc)
+            for user_doc in users.find({
+                "status": "rejected",
+                "demo_user": {"$ne": True}
+            }).sort("updated_at", -1)
+        ]
+        reports = [
+            public_candidate_document(user_doc, include_report=True)
+            for user_doc in users.find({
+                "interview_taken": True,
+                "virtual_taken": True,
+                "demo_user": {"$ne": True}
+            }).sort("virtual_completed_at", -1)
+        ]
+    except (ServerSelectionTimeoutError, PyMongoError) as e:
+        return jsonify({
+            "error": "Database connection failed",
+            "details": str(e)
+        }), 503
 
     return jsonify({
         "pending": pending,
@@ -3719,14 +3862,23 @@ zyra HR
 @app.route("/api/candidate/login", methods=["POST"])
 def candidate_login():
     data = request.get_json() or {}
-    ensure_demo_candidate()
+    if not mongo_is_available():
+        return jsonify(mongo_unavailable_payload()), 503
+
+    safe_ensure_demo_candidate()
 
     username = str(data.get("username", "")).strip().lower()
     password = str(data.get("password", "")).strip()
     if not username or not password:
         return jsonify({"error": "Username and password are required"}), 400
 
-    user = users.find_one({"username": username})
+    try:
+        user = users.find_one({"username": username})
+    except (ServerSelectionTimeoutError, PyMongoError) as e:
+        return jsonify({
+            "error": "Database connection failed",
+            "details": str(e)
+        }), 503
 
     if not user:
         return jsonify({"error": "Invalid username"}), 401
@@ -4227,7 +4379,7 @@ except Exception as e:
     print("⚠ Warning: Interview V2 routes registration failed:", str(e))
 
 try:
-    ensure_demo_candidate()
+    safe_ensure_demo_candidate()
 except Exception as e:
     print("Warning: demo candidate seed failed:", str(e))
 
