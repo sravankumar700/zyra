@@ -755,4 +755,157 @@ body.proctor-auto-submitting .speech-block {
   .avatar-grid {
     grid-template-columns: 1fr;
   }
+
+  .mcq-card {
+    padding: 24px;
+  }
+
+  .mcq-inner {
+    flex-direction: column;
+  }
+
+  .mcq-video-panel {
+    width: 100%;
+    order: -1;
+  }
+
+  .video-feed {
+    min-height: auto;
+  }
+
+  .proctor-video {
+    max-height: 260px;
+  }
+
+  .options-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .avatar-page-shell {
+    width: calc(100% - 24px);
+    padding: 16px 0 28px;
+  }
+
+  .avatar-interview-header {
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .topbar-title {
+    font-size: 20px;
+  }
+
+  .avatar-progress {
+    font-size: 12px;
+  }
+
+  .avatar-back-btn,
+  .test-timer {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .avatar-interview-header .test-timer {
+    justify-self: stretch;
+  }
+
+  .mcq-card,
+  .avatar-left,
+  .avatar-right {
+    padding: 16px;
+    border-radius: 18px;
+  }
+
+  .q-nav {
+    padding: 12px;
+    gap: 6px;
+    max-height: 118px;
+    overflow-y: auto;
+  }
+
+  .q-num {
+    width: 34px;
+    height: 34px;
+    font-size: 12px;
+  }
+
+  .question-block {
+    padding: 18px;
+    border-radius: 16px;
+  }
+
+  .q-text {
+    font-size: 16px;
+  }
+
+  .option-btn {
+    min-height: 48px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    align-items: flex-start;
+  }
+
+  .mcq-actions,
+  .mic-controls,
+  .submit-controls {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .avatar-video-block {
+    min-height: auto;
+    padding: 14px;
+  }
+
+  .avatar-interview-video {
+    transform: scale(1.03);
+  }
+
+  .user-video-feed .proctor-video {
+    min-height: 170px;
+  }
+
+  .speech-title {
+    align-items: flex-start;
+    gap: 8px;
+    flex-direction: column;
+  }
+
+  .speech-textarea {
+    min-height: 132px;
+  }
+}
+
+@media (max-width: 420px) {
+  .avatar-page-shell {
+    width: calc(100% - 16px);
+    padding-top: 10px;
+  }
+
+  .topbar-title {
+    font-size: 18px;
+  }
+
+  .mcq-card,
+  .avatar-left,
+  .avatar-right {
+    padding: 12px;
+  }
+
+  .q-nav {
+    max-height: 104px;
+  }
+
+  .q-num {
+    width: 32px;
+    height: 32px;
+  }
+
+  .question-block,
+  .ai-question-block,
+  .speech-block {
+    padding: 14px;
+  }
 }

@@ -111,3 +111,56 @@
   color: var(--text-muted); font-size: 16px;
   border: 1px solid var(--border);
 }
+
+@media (max-width: 900px) {
+  .landing-hero {
+    min-height: auto;
+    padding: 64px 24px 44px;
+  }
+
+  .landing-hero-title {
+    font-size: 36px;
+  }
+
+  .landing-cards {
+    grid-template-columns: 1fr;
+    max-width: 620px;
+    padding: 0 24px 44px;
+  }
+}
+
+@media (max-width: 520px) {
+  .landing-hero {
+    padding: 44px 16px 32px;
+  }
+
+  .landing-hero-title {
+    font-size: 30px;
+    letter-spacing: 0;
+  }
+
+  .landing-hero-sub {
+    font-size: 14px;
+    margin-bottom: 28px;
+  }
+
+  .landing-get-started {
+    width: 100%;
+    max-width: 320px;
+    padding: 16px 24px !important;
+    font-size: 17px !important;
+  }
+
+  .landing-cards {
+    padding: 0 16px 32px;
+    gap: 16px;
+  }
+
+  .landing-card {
+    padding: 22px;
+  }
+
+  .landing-card-title {
+    font-size: 18px;
+  }
+}

@@ -197,3 +197,72 @@
 
 .auth-footer-bar a { color: var(--text-muted); text-decoration: none; }
 .auth-footer-bar a:hover { color: var(--navy); }
+
+@media (max-width: 720px) {
+  .auth-page,
+  .user-auth-page {
+    min-height: 100svh !important;
+    padding: 24px 16px !important;
+    align-items: center !important;
+  }
+
+  .auth-card,
+  .user-login-card {
+    max-width: 440px !important;
+    padding: 32px 24px !important;
+    border-radius: 22px !important;
+  }
+
+  .auth-title,
+  .user-login-title {
+    font-size: 16px !important;
+    letter-spacing: 1.2px !important;
+    margin-bottom: 22px !important;
+  }
+
+  .auth-page-label,
+  .page-top-label {
+    position: static !important;
+    width: 100% !important;
+    text-align: center !important;
+    margin-bottom: 14px !important;
+  }
+
+  .auth-page-label h1,
+  .page-top-label h2 {
+    display: inline-block !important;
+    font-size: 20px !important;
+  }
+
+  .chip-badge,
+  .ai-icon-badge,
+  .circuit-badge {
+    display: none !important;
+  }
+
+  .auth-page-footer,
+  .auth-footer-bar {
+    position: static !important;
+    margin-top: 18px !important;
+  }
+}
+
+@media (max-width: 420px) {
+  .auth-page,
+  .user-auth-page {
+    padding: 16px 12px !important;
+  }
+
+  .auth-card,
+  .user-login-card {
+    padding: 26px 18px !important;
+    border-radius: 18px !important;
+  }
+
+  .auth-input,
+  .user-auth-input,
+  .auth-submit,
+  .user-login-btn {
+    min-height: 46px !important;
+  }
+}

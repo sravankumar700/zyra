@@ -294,3 +294,66 @@ input:focus, textarea:focus {
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+@media (hover: none), (pointer: coarse) {
+  *, *::before, *::after { cursor: auto !important; }
+  .cursor-dot,
+  .cursor-ring { display: none !important; }
+}
+
+@media (max-width: 768px) {
+  .navbar {
+    height: auto;
+    min-height: 64px;
+    padding: 12px 16px;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .navbar-brand-name {
+    font-size: 20px;
+  }
+
+  .navbar-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .nav-btn {
+    padding: 9px 8px;
+    text-align: center;
+    font-size: 13px;
+  }
+
+  .btn,
+  .btn-large {
+    width: 100%;
+    justify-content: center;
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .footer {
+    padding: 18px 16px;
+    flex-direction: column;
+    gap: 12px;
+    text-align: center;
+  }
+
+  .footer-social {
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 420px) {
+  .navbar-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .nav-btn {
+    border-radius: 999px;
+  }
+}
