@@ -2039,7 +2039,19 @@ def enforce_virtual_question_mix(questions, user, total_count, excluded_question
         f"What quality checks would you put in place before handing over important {role} work?",
         f"How would you prioritize two urgent {role} tasks when both have business impact?",
         f"Tell me how you would turn incomplete requirements into an actionable {role} plan.",
-        f"What signals would you track to know whether your {role} solution is working well?"
+        f"What signals would you track to know whether your {role} solution is working well?",
+        f"How would you handle a disagreement about priorities during a {role} assignment?",
+        f"Describe the information you would gather before recommending a {role} solution.",
+        f"What would you do if a handover for important {role} work was incomplete?",
+        f"How would you keep stakeholders informed while solving a {role} delivery issue?",
+        f"Tell me how you would identify risks before starting a complex {role} task.",
+        f"How would you decide whether to escalate a blocked {role} problem?",
+        f"What steps would you take to improve a repeated weakness in a {role} workflow?",
+        f"How would you validate that your {role} decision helped the team or customer?",
+        f"Describe how you would mentor a newer teammate on a task involving {primary_skill}.",
+        f"What would you do if quality expectations changed halfway through a {role} project?",
+        f"How would you balance speed and accuracy when delivering urgent {role} work?",
+        f"Tell me how you would document a difficult decision made during {role} delivery."
     ]
     for filler in fallback_role_templates:
         if len(mixed) >= total_count:
@@ -2057,6 +2069,82 @@ def enforce_virtual_question_mix(questions, user, total_count, excluded_question
             mixed.append(filler)
         variant_index += 1
     return mixed[:total_count]
+
+
+def guarantee_virtual_question_count(questions, user, total_count, excluded_questions=None):
+    strict_questions = enforce_virtual_question_mix(
+        questions or [],
+        user,
+        total_count,
+        excluded_questions=excluded_questions
+    )
+    if len(strict_questions) >= total_count:
+        return strict_questions[:total_count], "strict"
+
+    relaxed_seed = []
+    relaxed_seed.extend(strict_questions)
+    relaxed_seed.extend(questions or [])
+    relaxed_seed.extend(generate_deterministic_virtual_questions(user, total_count * 4))
+    relaxed_questions = enforce_virtual_question_mix(
+        relaxed_seed,
+        user,
+        total_count,
+        excluded_questions=[]
+    )
+    if len(relaxed_questions) >= total_count:
+        return relaxed_questions[:total_count], "relaxed_history"
+
+    role = str(user.get("job_role") or "this role").strip() or "this role"
+    skills = split_csv(user.get("skills"))
+    primary_skill = skills[0] if skills else role
+    emergency_templates = [
+        f"In a {role} situation where customer expectations changed suddenly, how would you reset priorities and communicate the plan?",
+        f"When using {primary_skill}, how would you check whether the final outcome is reliable enough to hand over?",
+        f"If you noticed a small issue that could become a larger {role} risk, what would you do first?",
+        f"Describe how you would compare two possible solutions for a difficult {role} problem.",
+        f"How would you recover trust after a delay or mistake in important {role} work?",
+        f"What would you ask a manager or client before starting an unfamiliar {role} assignment?",
+        f"How would you organize your day when learning a new tool while still delivering {role} responsibilities?",
+        f"Describe how you would use feedback from one {role} project to improve the next one.",
+        f"If data, instructions, or requirements conflicted in a {role} task, how would you resolve the conflict?",
+        f"How would you show ownership when a shared {role} task has no clear owner?",
+        f"What would you do if your first solution for a {role} challenge did not work as expected?",
+        f"How would you make a complex {role} update easy for a non-specialist to understand?",
+        f"Describe how you would protect quality when several {role} deadlines arrive together.",
+        f"What would you measure after completing a {role} improvement to prove it created value?",
+        f"How would you prepare for a review meeting about your {role} performance and recent outcomes?",
+        f"If a teammate disagreed with your {role} approach, how would you test which approach is better?",
+        f"How would you adapt your communication style for a senior stakeholder during {role} work?",
+        f"Describe a practical plan for reducing repeated errors in a {role} process."
+    ]
+    for filler in emergency_templates:
+        if len(relaxed_questions) >= total_count:
+            break
+        if not is_similar_question(filler, relaxed_questions, threshold=0.86):
+            relaxed_questions.append(filler)
+
+    variant_index = 1
+    scenario_focus = [
+        "ambiguous acceptance criteria",
+        "limited time for testing",
+        "multiple teams waiting for a decision",
+        "unexpected feedback from a stakeholder",
+        "missing information in the request",
+        "a process that keeps producing rework",
+        "a handover with unclear ownership",
+        "pressure to deliver before quality checks finish"
+    ]
+    while len(relaxed_questions) < total_count and variant_index <= total_count * 4:
+        focus = scenario_focus[(variant_index - 1) % len(scenario_focus)]
+        filler = (
+            f"For {role} scenario {variant_index} involving {focus}, "
+            f"what practical steps would you take using {primary_skill} and how would you judge success?"
+        )
+        if not is_similar_question(filler, relaxed_questions, threshold=0.92):
+            relaxed_questions.append(filler)
+        variant_index += 1
+
+    return relaxed_questions[:total_count], "emergency_fill"
 
 
 def generate_virtual_questions_with_fallback(user, total_count, excluded_questions=None):
@@ -2127,15 +2215,15 @@ Return ONLY valid JSON:
     if best_ai_questions:
         deterministic_fill = generate_deterministic_virtual_questions(user, total_count * 3)
         combined = normalize_virtual_questions(best_ai_questions + deterministic_fill, total_count, excluded_questions)
-        mixed = enforce_virtual_question_mix(combined, user, total_count, excluded_questions)
+        mixed, fallback_mode = guarantee_virtual_question_count(combined, user, total_count, excluded_questions)
         if len(mixed) >= total_count:
-            return mixed, {"fallback": "partial_ai_with_deterministic_fill", "errors": errors}
+            return mixed, {"fallback": f"partial_ai_with_{fallback_mode}", "errors": errors}
 
     deterministic = generate_deterministic_virtual_questions(user, total_count * 3)
     deterministic = normalize_virtual_questions(deterministic, total_count, excluded_questions)
-    mixed = enforce_virtual_question_mix(deterministic, user, total_count, excluded_questions)
+    mixed, fallback_mode = guarantee_virtual_question_count(deterministic, user, total_count, excluded_questions)
     if mixed and len(mixed) >= total_count:
-        return mixed, {"fallback": "deterministic", "errors": errors}
+        return mixed, {"fallback": f"deterministic_{fallback_mode}", "errors": errors}
     return None, {"errors": errors}
 
 
@@ -3492,33 +3580,34 @@ def generate_virtual_questions():
             excluded_questions=excluded_questions
         )
     except Exception as e:
-        questions = enforce_virtual_question_mix(
+        questions, fallback_mode = guarantee_virtual_question_count(
             generate_deterministic_virtual_questions(user, VIRTUAL_QUESTION_COUNT * 2),
             user,
             VIRTUAL_QUESTION_COUNT,
             excluded_questions=excluded_questions
         )
-        last_error = {"error": "Virtual question generation exception", "details": str(e), "fallback": "deterministic"}
+        last_error = {"error": "Virtual question generation exception", "details": str(e), "fallback": fallback_mode}
 
     if not questions:
-        questions = enforce_virtual_question_mix(
+        questions, fallback_mode = guarantee_virtual_question_count(
             generate_deterministic_virtual_questions(user, VIRTUAL_QUESTION_COUNT * 2),
             user,
             VIRTUAL_QUESTION_COUNT,
             excluded_questions=excluded_questions
         )
-        last_error = {"error": "Virtual question generation failed", "details": last_error, "fallback": "deterministic"}
+        last_error = {"error": "Virtual question generation failed", "details": last_error, "fallback": fallback_mode}
 
     if not questions:
         return jsonify({"error": "Failed to generate virtual interview questions", "details": last_error}), 500
 
     if len(questions) < VIRTUAL_QUESTION_COUNT:
-        questions = enforce_virtual_question_mix(
+        questions, fallback_mode = guarantee_virtual_question_count(
             questions + generate_deterministic_virtual_questions(user, VIRTUAL_QUESTION_COUNT * 3),
             user,
             VIRTUAL_QUESTION_COUNT,
             excluded_questions=excluded_questions
         )
+        last_error = {"error": "Virtual question fill used", "details": last_error, "fallback": fallback_mode}
 
     if len(questions) < VIRTUAL_QUESTION_COUNT:
         return jsonify({"error": "Failed to prepare enough unique virtual interview questions", "details": last_error}), 500

@@ -203,8 +203,8 @@
         mcq_total_questions: data.total_questions,
         score: data.score
       }));
-      alert(`MCQ submitted.\nScore: ${data.score_percent}%\n${data.promoted_to_virtual ? 'AI Avatar Interview is now unlocked.' : 'AI Avatar Interview remains locked pending review.'}`);
-      window.location.href = 'user_dashboard.html';
+      // alert(`MCQ submitted.\nScore: ${data.score_percent}%\n${data.promoted_to_virtual ? 'AI Avatar Interview is now unlocked.' : 'AI Avatar Interview remains locked pending review.'}`);
+      // window.location.href = 'user_dashboard.html';
     } catch (error) {
       alert(error.message || 'Unable to submit MCQ test.');
       if (submitBtn) {
